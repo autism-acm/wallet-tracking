@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/@popperjs/core@2"></script>
+  <style>
+    body {
+      font-family: 'IBM Plex Mono', monospace;
+      background: #2a271e;
+      color: #cecece;
+      padding: 24px;
+      margin: 0;
+    }
+    #chartContainer {
+      max-width: 600px;
+      margin: 0 auto;
+      position: relative;
+    }
+    .loading {
+      text-align: center;
+      padding: 48px;
+      font-size: 16px;
+    }
+    .tooltip-container {
+      display: none;
+      position: absolute;
+      background: #232016;
+      border: 1px solid #36342E;
+      border-radius: 12px;
+      padding: 12px 16px;
+      color: #cecece;
+      font-size: 14px;
+      z-index: 9999;
+      max-width: 300px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      pointer-events: none;
+    }
+    .tooltip-container.show {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="chartContainer">
+    <div class="loading">Loading token holders...</div>
+    <canvas id="pieChart" style="display:none;"></canvas>
+  </div>
+  <div id="tooltip" class="tooltip-container"></div>
+
+  <script>
+    const TOKEN_ADDRESS = '8tnYkdbAi8hqKbsEw81HMrrzHXnhB59mhs9eWofEpump';
+    const HIGHLIGHTED_WALLETS = [
+      'ExnewHTbYSPvwU9Csrd98ZbP7C9x7zF6E6XVvJwoZuTf',
+      'PLACEHOLDER_WALLET_1',
+      'PLACEHOLDER_WALLET_2'
+    ];
+    const RAINBOW_COLORS = ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF', '#E0BBE4'];
+    
+    async function fetchTokenHolders() {
+      try {
+        const connection = new solanaWeb3.Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+        const tokenMint = new solanaWeb3.PublicKey(TOKEN_ADDRESS);
+        
+        // Get all token accounts for this mint
+        const accounts = await connection.getProgramAccounts(
+          new solanaWeb3.PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'),
+          {
+            filters: [
+              { dataSize: 165 },
+              { memcmp: { offset: 0, bytes: tokenMint.toBase58() } }
+            ]
+          }
+        );
+        
+        // Parse account data
+        const holders = accounts.map(acc => {
+          const data = acc.account.data;
+          const owner = new solanaWeb3.PublicKey(data.slice(32, 64)).toBase58();
+          const amount = Number(data.readBigUInt64LE(64));
+          return { owner, amount };
+        }).filter(h => h.amount > 0);
+        
+        // Sort by amount descending
+        holders.sort((a, b) => b.amount - a.amount);
+        
+        // Get top 24 + aggregate rest
+        const top24 = holders.slice(0, 24);
+        const rest = holders.slice(24);
+        const restTotal = rest.reduce((sum, h) => sum + h.amount, 0);
+        
+        const finalData = [...top24];
+        if (restTotal > 0) {
+          finalData.push({ owner: 'The Rest', amount: restTotal });
+        }
+        
+        return finalData;
+      } catch (err) {
+        console.error('Error fetching holders:', err);
+        throw err;
+      }
+    }
+    
+    async function renderChart() {
+      try {
+        const holders = await fetchTokenHolders();
+        const total = holders.reduce((sum, h) => sum + h.amount, 0);
+        
+        const labels = holders.map((h, i) => {
+          if (h.owner === 'The Rest') return 'The Rest';
+          if (h.owner.includes('pump')) return 'PumpSwap Pool';
+          return `Wallet ${i + 1}`;
+        });
+        
+        const data = holders.map(h => h.amount);
+        const percentages = holders.map(h => ((h.amount / total) * 100).toFixed(2));
+        
+        const colors = holders.map((_, i) => RAINBOW_COLORS[i % RAINBOW_COLORS.length]);
+        
+        document.querySelector('.loading').style.display = 'none';
+        document.getElementById('pieChart').style.display = 'block';
+        
+        const ctx = document.getElementById('pieChart').getContext('2d');
+        const chart = new Chart(ctx, {
+          type: 'pie',
+          data: {
+            labels: labels,
+            datasets: [{
+              data: data,
+              backgroundColor: colors,
+              borderColor: '#2a271e',
+              borderWidth: 2
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { display: false },
+              tooltip: { enabled: false }
+            },
+            onHover: (event, activeElements) => {
+              const tooltip = document.getElementById('tooltip');
+              if (activeElements.length > 0) {
+                const index = activeElements[0].index;
+                const wallet = holders[index].owner;
+                const percent = percentages[index];
+                
+                tooltip.innerHTML = `<strong>${labels[index]}</strong><br>${percent}%<br><small>${wallet.substring(0, 8)}...${wallet.substring(wallet.length - 8)}</small>`;
+                tooltip.classList.add('show');
+                
+                const rect = event.native.target.getBoundingClientRect();
+                tooltip.style.left = event.native.clientX + 'px';
+                tooltip.style.top = event.native.clientY - 60 + 'px';
+              } else {
+                tooltip.classList.remove('show');
+              }
+            }
+          }
+        });
+      } catch (err) {
+        document.querySelector('.loading').textContent = 'Error loading data. Please refresh.';
+      }
+    }
+    
+    renderChart();
+  </script>
+</body>
+</html>
