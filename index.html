@@ -67,7 +67,7 @@
     
     async function fetchTokenHolders() {
       try {
-        const connection = new solanaWeb3.Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+        const connection = new solanaWeb3.Connection('https://rpc.ankr.com/solana', 'confirmed');
         const tokenMint = new solanaWeb3.PublicKey(TOKEN_ADDRESS);
         
         const TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
