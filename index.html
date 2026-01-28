@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.87.6/lib/index.iife.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://unpkg.com/@popperjs/core@2"></script>
   <style>
@@ -24,9 +24,15 @@
       padding: 48px;
       font-size: 16px;
     }
+    .error {
+      text-align: center;
+      padding: 48px;
+      font-size: 14px;
+      color: #ff605c;
+    }
     .tooltip-container {
       display: none;
-      position: absolute;
+      position: fixed;
       background: #232016;
       border: 1px solid #36342E;
       border-radius: 12px;
@@ -64,9 +70,10 @@
         const connection = new solanaWeb3.Connection('https://api.mainnet-beta.solana.com', 'confirmed');
         const tokenMint = new solanaWeb3.PublicKey(TOKEN_ADDRESS);
         
-        // Get all token accounts for this mint
-        const accounts = await connection.getProgramAccounts(
-          new solanaWeb3.PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'),
+        const TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+        
+        const accounts = await connection.getParsedProgramAccounts(
+          TOKEN_PROGRAM_ID,
           {
             filters: [
               { dataSize: 165 },
@@ -75,18 +82,19 @@
           }
         );
         
-        // Parse account data
         const holders = accounts.map(acc => {
-          const data = acc.account.data;
-          const owner = new solanaWeb3.PublicKey(data.slice(32, 64)).toBase58();
-          const amount = Number(data.readBigUInt64LE(64));
-          return { owner, amount };
-        }).filter(h => h.amount > 0);
+          const parsed = acc.account.data.parsed;
+          if (parsed && parsed.info) {
+            return {
+              owner: parsed.info.owner,
+              amount: parseInt(parsed.info.tokenAmount.amount)
+            };
+          }
+          return null;
+        }).filter(h => h && h.amount > 0);
         
-        // Sort by amount descending
         holders.sort((a, b) => b.amount - a.amount);
         
-        // Get top 24 + aggregate rest
         const top24 = holders.slice(0, 24);
         const rest = holders.slice(24);
         const restTotal = rest.reduce((sum, h) => sum + h.amount, 0);
@@ -106,11 +114,16 @@
     async function renderChart() {
       try {
         const holders = await fetchTokenHolders();
+        
+        if (!holders || holders.length === 0) {
+          throw new Error('No holders found');
+        }
+        
         const total = holders.reduce((sum, h) => sum + h.amount, 0);
         
         const labels = holders.map((h, i) => {
           if (h.owner === 'The Rest') return 'The Rest';
-          if (h.owner.includes('pump')) return 'PumpSwap Pool';
+          if (h.owner.toLowerCase().includes('pump')) return 'PumpSwap Pool';
           return `Wallet ${i + 1}`;
         });
         
@@ -149,10 +162,8 @@
                 
                 tooltip.innerHTML = `<strong>${labels[index]}</strong><br>${percent}%<br><small>${wallet.substring(0, 8)}...${wallet.substring(wallet.length - 8)}</small>`;
                 tooltip.classList.add('show');
-                
-                const rect = event.native.target.getBoundingClientRect();
-                tooltip.style.left = event.native.clientX + 'px';
-                tooltip.style.top = event.native.clientY - 60 + 'px';
+                tooltip.style.left = event.native.pageX + 10 + 'px';
+                tooltip.style.top = event.native.pageY - 60 + 'px';
               } else {
                 tooltip.classList.remove('show');
               }
@@ -160,11 +171,14 @@
           }
         });
       } catch (err) {
-        document.querySelector('.loading').textContent = 'Error loading data. Please refresh.';
+        console.error('Full error:', err);
+        document.querySelector('.loading').innerHTML = `<div class="error">Error: ${err.message}<br><small>Check console for details</small></div>`;
       }
     }
     
-    renderChart();
+    window.addEventListener('load', () => {
+      setTimeout(renderChart, 500);
+    });
   </script>
 </body>
 </html>
