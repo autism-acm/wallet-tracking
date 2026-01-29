@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.87.6/lib/index.iife.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400&display=swap" rel="stylesheet">
   <style>
     body {
       font-family: 'IBM Plex Mono', monospace;
@@ -14,17 +17,17 @@
       margin: 0;
     }
     #container {
-      max-width: 800px;
+      max-width: 1200px;
       margin: 0 auto;
-      display: flex;
-      gap: 24px;
     }
     #chartContainer {
-      width: 400px;
+      max-width: 400px;
+      margin: 0 auto 24px;
       position: relative;
     }
     #transactionsContainer {
-      width: 400px;
+      max-width: 800px;
+      margin: 0 auto;
       max-height: 600px;
       overflow-y: scroll;
       scrollbar-width: none;
@@ -60,35 +63,72 @@
     .tooltip-container.show {
       display: block;
     }
-    .tx-item {
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
       background: #232016;
       border: 1px solid #36342E;
-      border-radius: 8px;
-      padding: 12px;
+      border-radius: 12px;
+      padding: 12px 16px;
+      color: #cecece;
+      font-size: 14px;
+      z-index: 9999;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      pointer-events: none;
+    }
+    #pieChart {
+      cursor: pointer;
+    }
+    .tx-item {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
       margin-bottom: 8px;
+      font-family: 'Sora', sans-serif;
+      letter-spacing: -0.06em;
+      font-weight: 400;
     }
-    .tx-type {
-      font-weight: bold;
-      margin-bottom: 4px;
+    .tx-action {
+      padding: 6px 16px;
+      border-radius: 12px;
+      font-size: 14px;
+      white-space: nowrap;
     }
-    .tx-type.buy {
-      color: #00ca4e;
+    .tx-action.buy {
+      background: #00A78D;
+      border: 1px solid #001F1A63;
     }
-    .tx-type.sell {
-      color: #ff605c;
+    .tx-action.sell {
+      background: #CF206D;
+      border: 1px solid #3F002063;
     }
-    .tx-wallet {
-      font-size: 12px;
-      color: #8e8e8e;
-      margin-bottom: 4px;
-    }
-    .tx-amount {
-      font-size: 13px;
+    .tx-action.lock {
+      background: #FFBD44;
+      border: 1px solid #3F2F0063;
     }
     h3 {
       margin-top: 0;
       font-size: 16px;
       margin-bottom: 16px;
+      text-align: center;
+    }
+    
+    @media (min-width: 768px) {
+      #container {
+        display: flex;
+        gap: 24px;
+        align-items: flex-start;
+      }
+      #chartContainer {
+        margin: 0;
+      }
+      #transactionsContainer {
+        flex: 1;
+      }
     }
   </style>
 </head>
@@ -99,21 +139,38 @@
       <canvas id="pieChart" style="display:none;"></canvas>
     </div>
     <div id="transactionsContainer">
-      <h3>Recent Transactions</h3>
+      <h3>Recent Actions</h3>
       <div id="txList" class="loading">Loading transactions...</div>
     </div>
   </div>
   <div id="tooltip" class="tooltip-container"></div>
+  <div id="toast" class="toast">Copied!</div>
 
   <script>
     const TOKEN_ADDRESS = '8tnYkdbAi8hqKbsEw81HMrrzHXnhB59mhs9eWofEpump';
-    const TRACKED_WALLETS = [
-      'ExnewHTbYSPvwU9Csrd98ZbP7C9x7zF6E6XVvJwoZuTf',
-      'PLACEHOLDER_WALLET_1',
-      'PLACEHOLDER_WALLET_2'
-    ];
+    const TRACKED_WALLETS = {
+      'ExnewHTbYSPvwU9Csrd98ZbP7C9x7zF6E6XVvJwoZuTf': 'Tracked Wallet 1',
+      'PLACEHOLDER_WALLET_1': 'Tracked Wallet 2',
+      'PLACEHOLDER_WALLET_2': 'Tracked Wallet 3'
+    };
+    const LIQUIDITY_POOL_LABEL = '💧 Pump.fun Pool';
     const RAINBOW_COLORS = ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF', '#E0BBE4'];
     const HELIUS_API = '69962546-7dad-4593-b0a3-2d43dc14974a';
+    
+    let holdersData = [];
+    let chartInstance = null;
+    
+    function showToast(message = 'Copied!') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateY(0)';
+      
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(20px)';
+      }, 2000);
+    }
     
     async function fetchTokenHolders() {
       const connection = new solanaWeb3.Connection(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API}`, 'confirmed');
@@ -121,7 +178,7 @@
       
       const accounts = await connection.getTokenLargestAccounts(tokenMint);
       
-      const holdersData = await Promise.all(
+      const holdersDataRaw = await Promise.all(
         accounts.value.map(async (acc) => {
           try {
             const accountInfo = await connection.getParsedAccountInfo(acc.address);
@@ -139,8 +196,11 @@
         })
       );
       
-      const holders = holdersData.filter(h => h && h.amount > 0);
+      const holders = holdersDataRaw.filter(h => h && h.amount > 0);
       holders.sort((a, b) => b.amount - a.amount);
+      
+      // Identify liquidity pool (usually the largest holder or has "pump" in derived address)
+      const liquidityPool = holders[0]; // Assume largest holder is LP
       
       const top24 = holders.slice(0, 24);
       const rest = holders.slice(24);
@@ -162,14 +222,14 @@
         const signatures = await connection.getSignaturesForAddress(tokenMint, { limit: 100 });
         
         const txs = [];
-        for (const sig of signatures.slice(0, 20)) {
+        for (const sig of signatures.slice(0, 30)) {
           try {
             const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
             
             if (!tx || !tx.meta) continue;
             
             const accountKeys = tx.transaction.message.accountKeys.map(k => k.pubkey.toBase58());
-            const trackedWallet = TRACKED_WALLETS.find(w => accountKeys.includes(w));
+            const trackedWallet = Object.keys(TRACKED_WALLETS).find(w => accountKeys.includes(w));
             
             if (trackedWallet) {
               const preBalances = tx.meta.preTokenBalances || [];
@@ -185,7 +245,7 @@
                 
                 if (diff !== 0) {
                   txs.push({
-                    wallet: trackedWallet,
+                    wallet: TRACKED_WALLETS[trackedWallet],
                     type: diff > 0 ? 'buy' : 'sell',
                     amount: Math.abs(diff),
                     time: new Date(sig.blockTime * 1000).toLocaleString()
@@ -207,32 +267,36 @@
     
     async function renderChart() {
       try {
-        const holders = await fetchTokenHolders();
+        holdersData = await fetchTokenHolders();
         
-        if (!holders || holders.length === 0) {
+        if (!holdersData || holdersData.length === 0) {
           throw new Error('No holders found');
         }
         
-        const total = holders.reduce((sum, h) => sum + h.amount, 0);
+        const total = holdersData.reduce((sum, h) => sum + h.amount, 0);
         
-        const labels = holders.map((h, i) => {
+        const labels = holdersData.map((h, i) => {
           if (h.owner === 'The Rest') return 'The Rest';
-          const ownerLower = h.owner.toLowerCase();
-          if (ownerLower.includes('pump') || ownerLower.includes('liquidity') || ownerLower.includes('pool')) {
-            return '💧 Pump.fun Pool';
-          }
-          return `Wallet ${i + 1}`;
+          if (i === 0) return LIQUIDITY_POOL_LABEL;
+          if (TRACKED_WALLETS[h.owner]) return TRACKED_WALLETS[h.owner];
+          return `Wallet ${i}`;
         });
         
-        const data = holders.map(h => h.amount);
-        const percentages = holders.map(h => ((h.amount / total) * 100).toFixed(2));
-        const colors = holders.map((_, i) => RAINBOW_COLORS[i % RAINBOW_COLORS.length]);
+        const data = holdersData.map(h => h.amount);
+        const percentages = holdersData.map(h => ((h.amount / total) * 100).toFixed(2));
+        
+        // First 6 get rainbow, liquidity pool gets #cecece, rest get #8e8e8e
+        const colors = holdersData.map((h, i) => {
+          if (i === 0) return '#cecece'; // Liquidity pool
+          if (i <= 6) return RAINBOW_COLORS[(i - 1) % RAINBOW_COLORS.length];
+          return '#8e8e8e';
+        });
         
         document.querySelector('#chartContainer .loading').style.display = 'none';
         document.getElementById('pieChart').style.display = 'block';
         
         const ctx = document.getElementById('pieChart').getContext('2d');
-        new Chart(ctx, {
+        chartInstance = new Chart(ctx, {
           type: 'pie',
           data: {
             labels: labels,
@@ -249,14 +313,37 @@
               legend: { display: false },
               tooltip: { enabled: false }
             },
+            onClick: (event, activeElements) => {
+              if (activeElements.length > 0) {
+                const index = activeElements[0].index;
+                const wallet = holdersData[index].owner;
+                
+                navigator.clipboard.writeText(wallet).then(() => {
+                  showToast('Address copied!');
+                }).catch(err => {
+                  showToast('Copy failed!');
+                });
+              }
+            },
             onHover: (event, activeElements) => {
               const tooltip = document.getElementById('tooltip');
               if (activeElements.length > 0) {
                 const index = activeElements[0].index;
-                const wallet = holders[index].owner;
+                const holder = holdersData[index];
                 const percent = percentages[index];
                 
-                tooltip.innerHTML = `<strong>${labels[index]}</strong><br>${percent}%<br><small>${wallet.substring(0, 8)}...${wallet.substring(wallet.length - 8)}</small>`;
+                let tooltipText = `<strong>${labels[index]}</strong><br>${percent}%`;
+                
+                // Custom tooltip for tracked wallets and LP
+                if (index === 0) {
+                  tooltipText = `<strong>${LIQUIDITY_POOL_LABEL}</strong><br>${percent}%<br><small>Largest holder (likely LP)</small>`;
+                } else if (TRACKED_WALLETS[holder.owner]) {
+                  tooltipText = `<strong>${TRACKED_WALLETS[holder.owner]}</strong><br>${percent}%<br><small>${holder.owner.substring(0, 8)}...${holder.owner.substring(holder.owner.length - 8)}</small>`;
+                } else {
+                  tooltipText += `<br><small>${holder.owner.substring(0, 8)}...${holder.owner.substring(holder.owner.length - 8)}</small>`;
+                }
+                
+                tooltip.innerHTML = tooltipText;
                 tooltip.classList.add('show');
                 tooltip.style.left = event.native.pageX + 10 + 'px';
                 tooltip.style.top = event.native.pageY - 60 + 'px';
@@ -278,16 +365,14 @@
         const txList = document.getElementById('txList');
         
         if (txs.length === 0) {
-          txList.innerHTML = '<div class="tx-item">No recent transactions for tracked wallets</div>';
+          txList.innerHTML = '<div class="tx-item"><div class="tx-action buy">No recent transactions</div></div>';
           return;
         }
         
         txList.innerHTML = txs.map(tx => `
           <div class="tx-item">
-            <div class="tx-type ${tx.type}">${tx.type.toUpperCase()}</div>
-            <div class="tx-wallet">${tx.wallet.substring(0, 8)}...${tx.wallet.substring(tx.wallet.length - 8)}</div>
-            <div class="tx-amount">${(tx.amount / 1e9).toFixed(2)} tokens</div>
-            <div class="tx-wallet">${tx.time}</div>
+            <div class="tx-action ${tx.type}">${tx.type.toUpperCase()}</div>
+            <div class="tx-action lock">LOCK</div>
           </div>
         `).join('');
       } catch (err) {
