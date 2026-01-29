@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.87.6/lib/index.iife.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://unpkg.com/@popperjs/core@2"></script>
   <style>
     body {
       font-family: 'IBM Plex Mono', monospace;
@@ -14,15 +13,29 @@
       padding: 24px;
       margin: 0;
     }
-    #chartContainer {
-      max-width: 600px;
+    #container {
+      max-width: 800px;
       margin: 0 auto;
+      display: flex;
+      gap: 24px;
+    }
+    #chartContainer {
+      width: 400px;
       position: relative;
+    }
+    #transactionsContainer {
+      width: 400px;
+      max-height: 600px;
+      overflow-y: scroll;
+      scrollbar-width: none;
+    }
+    #transactionsContainer::-webkit-scrollbar {
+      display: none;
     }
     .loading {
       text-align: center;
       padding: 48px;
-      font-size: 16px;
+      font-size: 14px;
     }
     .error {
       text-align: center;
@@ -47,72 +60,148 @@
     .tooltip-container.show {
       display: block;
     }
+    .tx-item {
+      background: #232016;
+      border: 1px solid #36342E;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+    }
+    .tx-type {
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+    .tx-type.buy {
+      color: #00ca4e;
+    }
+    .tx-type.sell {
+      color: #ff605c;
+    }
+    .tx-wallet {
+      font-size: 12px;
+      color: #8e8e8e;
+      margin-bottom: 4px;
+    }
+    .tx-amount {
+      font-size: 13px;
+    }
+    h3 {
+      margin-top: 0;
+      font-size: 16px;
+      margin-bottom: 16px;
+    }
   </style>
 </head>
 <body>
-  <div id="chartContainer">
-    <div class="loading">Loading token holders...</div>
-    <canvas id="pieChart" style="display:none;"></canvas>
+  <div id="container">
+    <div id="chartContainer">
+      <div class="loading">Loading holders...</div>
+      <canvas id="pieChart" style="display:none;"></canvas>
+    </div>
+    <div id="transactionsContainer">
+      <h3>Recent Transactions</h3>
+      <div id="txList" class="loading">Loading transactions...</div>
+    </div>
   </div>
   <div id="tooltip" class="tooltip-container"></div>
 
   <script>
     const TOKEN_ADDRESS = '8tnYkdbAi8hqKbsEw81HMrrzHXnhB59mhs9eWofEpump';
+    const TRACKED_WALLETS = [
+      'ExnewHTbYSPvwU9Csrd98ZbP7C9x7zF6E6XVvJwoZuTf',
+      'PLACEHOLDER_WALLET_1',
+      'PLACEHOLDER_WALLET_2'
+    ];
     const RAINBOW_COLORS = ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF', '#E0BBE4'];
+    const HELIUS_API = '69962546-7dad-4593-b0a3-2d43dc14974a';
     
     async function fetchTokenHolders() {
+      const connection = new solanaWeb3.Connection(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API}`, 'confirmed');
+      const tokenMint = new solanaWeb3.PublicKey(TOKEN_ADDRESS);
+      
+      const accounts = await connection.getTokenLargestAccounts(tokenMint);
+      
+      const holdersData = await Promise.all(
+        accounts.value.map(async (acc) => {
+          try {
+            const accountInfo = await connection.getParsedAccountInfo(acc.address);
+            if (accountInfo.value && accountInfo.value.data.parsed) {
+              return {
+                owner: accountInfo.value.data.parsed.info.owner,
+                amount: parseInt(accountInfo.value.data.parsed.info.tokenAmount.amount),
+                address: acc.address.toBase58()
+              };
+            }
+          } catch (e) {
+            console.error('Error fetching account:', e);
+          }
+          return null;
+        })
+      );
+      
+      const holders = holdersData.filter(h => h && h.amount > 0);
+      holders.sort((a, b) => b.amount - a.amount);
+      
+      const top24 = holders.slice(0, 24);
+      const rest = holders.slice(24);
+      const restTotal = rest.reduce((sum, h) => sum + h.amount, 0);
+      
+      const finalData = [...top24];
+      if (restTotal > 0) {
+        finalData.push({ owner: 'The Rest', amount: restTotal });
+      }
+      
+      return finalData;
+    }
+    
+    async function fetchTransactions() {
       try {
-        const connection = new solanaWeb3.Connection('https://mainnet.helius-rpc.com/?api-key=69962546-7dad-4593-b0a3-2d43dc14974a', 'confirmed');
+        const connection = new solanaWeb3.Connection(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API}`, 'confirmed');
         const tokenMint = new solanaWeb3.PublicKey(TOKEN_ADDRESS);
         
-        // Try Token-2022 program first (pump.fun uses this)
-        const TOKEN_2022_PROGRAM_ID = new solanaWeb3.PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+        const signatures = await connection.getSignaturesForAddress(tokenMint, { limit: 100 });
         
-        console.log('Fetching token accounts...');
-        const accounts = await connection.getTokenLargestAccounts(tokenMint);
-        
-        console.log('Found accounts:', accounts.value.length);
-        
-        if (accounts.value.length === 0) {
-          throw new Error('No token accounts found');
-        }
-        
-        // Get owner info for each account
-        const holdersData = await Promise.all(
-          accounts.value.map(async (acc) => {
-            try {
-              const accountInfo = await connection.getParsedAccountInfo(acc.address);
-              if (accountInfo.value && accountInfo.value.data.parsed) {
-                return {
-                  owner: accountInfo.value.data.parsed.info.owner,
-                  amount: parseInt(accountInfo.value.data.parsed.info.tokenAmount.amount)
-                };
+        const txs = [];
+        for (const sig of signatures.slice(0, 20)) {
+          try {
+            const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
+            
+            if (!tx || !tx.meta) continue;
+            
+            const accountKeys = tx.transaction.message.accountKeys.map(k => k.pubkey.toBase58());
+            const trackedWallet = TRACKED_WALLETS.find(w => accountKeys.includes(w));
+            
+            if (trackedWallet) {
+              const preBalances = tx.meta.preTokenBalances || [];
+              const postBalances = tx.meta.postTokenBalances || [];
+              
+              const preBalance = preBalances.find(b => b.owner === trackedWallet);
+              const postBalance = postBalances.find(b => b.owner === trackedWallet);
+              
+              if (preBalance && postBalance) {
+                const preBal = parseInt(preBalance.uiTokenAmount.amount);
+                const postBal = parseInt(postBalance.uiTokenAmount.amount);
+                const diff = postBal - preBal;
+                
+                if (diff !== 0) {
+                  txs.push({
+                    wallet: trackedWallet,
+                    type: diff > 0 ? 'buy' : 'sell',
+                    amount: Math.abs(diff),
+                    time: new Date(sig.blockTime * 1000).toLocaleString()
+                  });
+                }
               }
-            } catch (e) {
-              console.error('Error fetching account:', e);
             }
-            return null;
-          })
-        );
-        
-        const holders = holdersData.filter(h => h && h.amount > 0);
-        console.log('Valid holders:', holders.length);
-        
-        holders.sort((a, b) => b.amount - a.amount);
-        
-        const top24 = holders.slice(0, 24);
-        const rest = holders.slice(24);
-        const restTotal = rest.reduce((sum, h) => sum + h.amount, 0);
-        
-        const finalData = [...top24];
-        if (restTotal > 0) {
-          finalData.push({ owner: 'The Rest', amount: restTotal });
+          } catch (e) {
+            console.error('Error parsing tx:', e);
+          }
         }
         
-        return finalData;
+        return txs;
       } catch (err) {
-        console.error('Error fetching holders:', err);
-        throw err;
+        console.error('Error fetching transactions:', err);
+        return [];
       }
     }
     
@@ -128,20 +217,22 @@
         
         const labels = holders.map((h, i) => {
           if (h.owner === 'The Rest') return 'The Rest';
-          if (h.owner.toLowerCase().includes('pump')) return 'PumpSwap Pool';
+          const ownerLower = h.owner.toLowerCase();
+          if (ownerLower.includes('pump') || ownerLower.includes('liquidity') || ownerLower.includes('pool')) {
+            return '💧 Pump.fun Pool';
+          }
           return `Wallet ${i + 1}`;
         });
         
         const data = holders.map(h => h.amount);
         const percentages = holders.map(h => ((h.amount / total) * 100).toFixed(2));
-        
         const colors = holders.map((_, i) => RAINBOW_COLORS[i % RAINBOW_COLORS.length]);
         
-        document.querySelector('.loading').style.display = 'none';
+        document.querySelector('#chartContainer .loading').style.display = 'none';
         document.getElementById('pieChart').style.display = 'block';
         
         const ctx = document.getElementById('pieChart').getContext('2d');
-        const chart = new Chart(ctx, {
+        new Chart(ctx, {
           type: 'pie',
           data: {
             labels: labels,
@@ -176,13 +267,40 @@
           }
         });
       } catch (err) {
-        console.error('Full error:', err);
-        document.querySelector('.loading').innerHTML = `<div class="error">Error: ${err.message}<br><small>Check console for details</small></div>`;
+        console.error('Chart error:', err);
+        document.querySelector('#chartContainer .loading').innerHTML = `<div class="error">Error: ${err.message}</div>`;
+      }
+    }
+    
+    async function renderTransactions() {
+      try {
+        const txs = await fetchTransactions();
+        const txList = document.getElementById('txList');
+        
+        if (txs.length === 0) {
+          txList.innerHTML = '<div class="tx-item">No recent transactions for tracked wallets</div>';
+          return;
+        }
+        
+        txList.innerHTML = txs.map(tx => `
+          <div class="tx-item">
+            <div class="tx-type ${tx.type}">${tx.type.toUpperCase()}</div>
+            <div class="tx-wallet">${tx.wallet.substring(0, 8)}...${tx.wallet.substring(tx.wallet.length - 8)}</div>
+            <div class="tx-amount">${(tx.amount / 1e9).toFixed(2)} tokens</div>
+            <div class="tx-wallet">${tx.time}</div>
+          </div>
+        `).join('');
+      } catch (err) {
+        console.error('TX error:', err);
+        document.getElementById('txList').innerHTML = '<div class="error">Error loading transactions</div>';
       }
     }
     
     window.addEventListener('load', () => {
-      setTimeout(renderChart, 500);
+      setTimeout(() => {
+        renderChart();
+        renderTransactions();
+      }, 500);
     });
   </script>
 </body>
