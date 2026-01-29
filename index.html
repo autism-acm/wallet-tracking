@@ -58,11 +58,6 @@
 
   <script>
     const TOKEN_ADDRESS = '8tnYkdbAi8hqKbsEw81HMrrzHXnhB59mhs9eWofEpump';
-    const HIGHLIGHTED_WALLETS = [
-      'ExnewHTbYSPvwU9Csrd98ZbP7C9x7zF6E6XVvJwoZuTf',
-      'PLACEHOLDER_WALLET_1',
-      'PLACEHOLDER_WALLET_2'
-    ];
     const RAINBOW_COLORS = ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF', '#E0BBE4'];
     
     async function fetchTokenHolders() {
@@ -70,28 +65,38 @@
         const connection = new solanaWeb3.Connection('https://mainnet.helius-rpc.com/?api-key=69962546-7dad-4593-b0a3-2d43dc14974a', 'confirmed');
         const tokenMint = new solanaWeb3.PublicKey(TOKEN_ADDRESS);
         
-        const TOKEN_PROGRAM_ID = new solanaWeb3.PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+        // Try Token-2022 program first (pump.fun uses this)
+        const TOKEN_2022_PROGRAM_ID = new solanaWeb3.PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
         
-        const accounts = await connection.getParsedProgramAccounts(
-          TOKEN_PROGRAM_ID,
-          {
-            filters: [
-              { dataSize: 165 },
-              { memcmp: { offset: 0, bytes: tokenMint.toBase58() } }
-            ]
-          }
+        console.log('Fetching token accounts...');
+        const accounts = await connection.getTokenLargestAccounts(tokenMint);
+        
+        console.log('Found accounts:', accounts.value.length);
+        
+        if (accounts.value.length === 0) {
+          throw new Error('No token accounts found');
+        }
+        
+        // Get owner info for each account
+        const holdersData = await Promise.all(
+          accounts.value.map(async (acc) => {
+            try {
+              const accountInfo = await connection.getParsedAccountInfo(acc.address);
+              if (accountInfo.value && accountInfo.value.data.parsed) {
+                return {
+                  owner: accountInfo.value.data.parsed.info.owner,
+                  amount: parseInt(accountInfo.value.data.parsed.info.tokenAmount.amount)
+                };
+              }
+            } catch (e) {
+              console.error('Error fetching account:', e);
+            }
+            return null;
+          })
         );
         
-        const holders = accounts.map(acc => {
-          const parsed = acc.account.data.parsed;
-          if (parsed && parsed.info) {
-            return {
-              owner: parsed.info.owner,
-              amount: parseInt(parsed.info.tokenAmount.amount)
-            };
-          }
-          return null;
-        }).filter(h => h && h.amount > 0);
+        const holders = holdersData.filter(h => h && h.amount > 0);
+        console.log('Valid holders:', holders.length);
         
         holders.sort((a, b) => b.amount - a.amount);
         
