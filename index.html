@@ -19,16 +19,14 @@
       font-weight: 400;
     }
 
-    /* --- General Layout --- */
     #container {
       max-width: 1200px;
       margin: 0;
       display: flex;
       flex-direction: column;
-      gap: 40px; /* Space between Chart Section and Tx Section */
+      gap: 40px;
     }
 
-    /* --- Chart Section --- */
     #chartContainer {
       max-width: 400px;
       position: relative;
@@ -37,32 +35,45 @@
     h3 {
       margin-top: 0;
       font-size: 16px;
-      margin-bottom: 24px; /* Default for chart */
+      margin-bottom: 24px;
       text-align: left;
       font-weight: 400;
     }
 
-    /* --- Transaction Section --- */
+    #chartContainer h3 {
+      margin-bottom: 54px;
+    }
+
     #transactionsContainer {
       width: 100%;
     }
 
-    /* FIX: User requested 54px gap specifically for Recent Actions header */
     #transactionsContainer h3 {
       margin-bottom: 54px;
     }
 
-    /* --- Card Styling (Based on .stk-e6c4d9b) --- */
+    /* --- Card & Scroll Logic --- */
     .tx-card {
       background-color: #232016;
       border: 1px solid #36342e;
       border-radius: 12px;
-      overflow: hidden;
+      overflow: hidden; /* Keeps border radius intact */
       display: flex;
       flex-direction: column;
     }
 
-    /* --- Header Row (Based on .stk-f0bca94) --- */
+    /* Wrapper for horizontal scrolling */
+    .tx-scroll-wrapper {
+      overflow-x: auto;
+      width: 100%;
+      -webkit-overflow-scrolling: touch; /* Smooth scroll on iOS */
+    }
+
+    .tx-table-header, .tx-table-row {
+      /* Ensure minimum width so it forces scroll on mobile instead of crunching */
+      min-width: 600px; 
+    }
+
     .tx-table-header {
       background-color: #2a271e;
       border-bottom: 1px solid #36342e;
@@ -70,10 +81,8 @@
       align-items: center;
     }
 
-    /* --- Data Row (Based on .stk-e0b34b8) --- */
-    /* Fixes the connecting border issue by using border-bottom on the row container */
     .tx-table-row {
-      border-bottom: 1px solid #2a271e; /* Connects cleanly with background */
+      border-bottom: 1px solid #2a271e;
       display: flex;
       align-items: center;
       transition: background 0.2s ease;
@@ -84,43 +93,33 @@
     }
 
     .tx-table-row:hover {
-      background-color: #2a271e; /* Subtle hover effect */
+      background-color: #2a271e;
     }
 
-    /* --- Columns --- */
     .tx-col {
-      padding: 4px 12px; /* From .stk-5d2b815 */
+      padding: 4px 12px;
       display: flex;
       align-items: center;
       justify-content: flex-start;
     }
 
-    .tx-col-action {
-      flex: 1 1 30%; /* Approx */
-    }
+    .tx-col-action { flex: 1 1 30%; }
+    .tx-col-wallet { flex: 1 1 40%; }
+    .tx-col-date { flex: 1 1 30%; }
 
-    .tx-col-wallet {
-      flex: 1 1 40%; /* Approx */
-    }
-
-    .tx-col-date {
-      flex: 1 1 30%; /* Approx */
-    }
-
-    /* --- Typography (From Reference) --- */
     .tx-header-text {
       font-size: 14px;
-      color: #cecece; /* From .stk-6cfc6d8 */
+      color: #cecece;
     }
 
     .tx-main-text {
       font-size: 16px;
-      color: #ffffff; /* From .stk-ba86a76 */
+      color: #ffffff;
     }
 
     .tx-sub-text {
       font-size: 14px;
-      color: #8e8e8e; /* From .stk-64acc70 */
+      color: #8e8e8e;
     }
 
     .tx-link {
@@ -134,49 +133,39 @@
       text-decoration: underline;
     }
 
-    /* --- Badges (Hybrid of Reference Style & Crypto Colors) --- */
-    /* Reference used beige #f4eac5 bg with black text. 
-       I am adapting this to use your specific colors for better UI clarity */
     .tx-badge {
       display: inline-flex;
       align-items: center;
       padding: 4px 8px;
-      border-radius: 4px; /* From .stk-ec82197 */
-      font-size: 11px; /* From .stk-5713b45 */
+      border-radius: 4px;
+      font-size: 11px;
       font-weight: 600;
       margin-right: 8px;
-      white-space: nowrap;
+      white-space: nowrap; /* Prevent badge text from wrapping */
     }
 
-    /* Buy - Green */
     .tx-badge.buy {
       background-color: #00A78D;
       color: #ffffff;
     }
 
-    /* Sell - Pink */
     .tx-badge.sell {
       background-color: #CF206D;
       color: #ffffff;
     }
 
-    /* Neutral actions (Lock, Transfer, Burn) - Beige like reference */
     .tx-badge.neutral {
       background-color: #f4eac5;
       color: #000000;
     }
 
-    /* --- Utility --- */
     .loading {
       text-align: left;
       padding: 48px 0;
       font-size: 14px;
     }
-    .error {
-      color: #ff605c;
-    }
+    .error { color: #ff605c; }
 
-    /* --- Tooltip & Toast (Original) --- */
     .tooltip-container {
       display: none;
       position: fixed;
@@ -227,10 +216,7 @@
     <div id="transactionsContainer">
       <h3>Recent Actions</h3>
       
-      <!-- Loading State -->
       <div id="txList" class="loading">Loading transactions...</div>
-      
-      <!-- Final HTML structure will be injected here by JS matching .tx-card style -->
     </div>
   </div>
 
@@ -249,21 +235,38 @@
         label: 'Dev Wallet',
         tooltip: '<strong>Dev Wallet</strong><br>Main development wallet'
       },
-      // Marketing Wallet
-      'PLACEHOLDER_WALLET_1': {
-        label: 'Marketing Wallet',
-        tooltip: '<strong>Marketing Wallet</strong><br>Handles marketing expenses'
+      
+      // TODO: LOOK AT THE CHART OUTPUT ONCE LOADED.
+      // FIND THE ADDRESS OF THE 2ND LARGEST HOLDER.
+      // PASTE THE ADDRESS BELOW REPLACING 'REPLACE_ME...' AND UPDATE THE LABEL.
+      'REPLACE_ME_WITH_2ND_LARGEST_WALLET_ADDRESS': {
+        label: 'Wallet #2', 
+        tooltip: '<strong>Wallet #2</strong><br>Update description'
       },
-      // Treasury Wallet
-      'PLACEHOLDER_WALLET_2': {
-        label: 'Treasury Wallet',
-        tooltip: '<strong>Treasury Wallet</strong><br>Treasury reserves'
+      
+      // TODO: LOOK AT THE CHART OUTPUT ONCE LOADED.
+      // FIND THE ADDRESS OF THE 3RD LARGEST HOLDER.
+      // PASTE THE ADDRESS BELOW REPLACING 'REPLACE_ME...' AND UPDATE THE LABEL.
+      'REPLACE_ME_WITH_3RD_LARGEST_WALLET_ADDRESS': {
+        label: 'Wallet #3',
+        tooltip: '<strong>Wallet #3</strong><br>Update description'
       }
     };
     // ============================================================================
     
     const LIQUIDITY_POOL_TOOLTIP = '💧 Pump.fun Bonding Curve<br>Liquidity provider for this token';
-    const RAINBOW_COLORS = ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF', '#E0BBE4'];
+    
+    // Palette of 7 colors. Unused ones are commented out for you to reference later.
+    const RAINBOW_COLORS = [
+      '#FFB3BA', // 1. Pink
+      '#FFDFBA', // 2. Orange
+      '#FFFFBA', // 3. Yellow
+      // '#BAFFC9', // 4. Green (Uncomment if you add a 4th tracked wallet)
+      // '#BAE1FF', // 5. Blue (Uncomment if you add a 5th tracked wallet)
+      // '#E0BBE4', // 6. Purple (Uncomment if you add a 6th tracked wallet)
+      // '#C7CEEA'  // 7. Periwinkle (Uncomment if you add a 7th tracked wallet)
+    ];
+    
     const HELIUS_API = '69962546-7dad-4593-b0a3-2d43dc14974a';
     const PUMPFUN_PROGRAM = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
     
@@ -385,13 +388,23 @@
         const total = holdersData.reduce((sum, h) => sum + h.amount, 0);
         
         let pastelIndex = 0;
+        
+        // Updated Color Logic: Only assign colors to tracked wallets
         const colors = holdersData.map((h, i) => {
-          if (i === 0) return '#cecece'; 
-          if (h.isRest) return '#8e8e8e';
-          if (pastelIndex < RAINBOW_COLORS.length) {
-            const color = RAINBOW_COLORS[pastelIndex++];
-            return color;
+          if (i === 0) return '#cecece'; // LP Placeholder
+          if (h.isRest) return '#8e8e8e'; // The Rest
+          
+          // Check if this wallet is in our tracked list
+          if (TRACKED_WALLETS[h.owner]) {
+             // Assign next available color
+             if (pastelIndex < RAINBOW_COLORS.length) {
+                const color = RAINBOW_COLORS[pastelIndex];
+                pastelIndex++;
+                return color;
+             }
           }
+          
+          // If not tracked, or we ran out of custom colors, use gray
           return '#8e8e8e';
         });
         
@@ -465,34 +478,24 @@
     }
     
     async function renderTransactions() {
-      // Placeholder Data
-      const placeholderTxs = [
-        { wallet: 'Dev Wallet', type: 'buy', amount: 170390000, time: new Date('2026-01-26T00:00:18'), signature: '5wHu7...' },
-        { wallet: 'Marketing Wallet', type: 'sell', amount: 50000000, time: new Date('2026-01-25T15:30:22'), signature: '3kPm2...' },
-        { wallet: 'Treasury Wallet', type: 'lock', amount: 100000000, time: new Date('2026-01-24T10:15:00'), signature: '7xQn4...' },
-        { wallet: 'Dev Wallet', type: 'transfer', amount: 25000000, time: new Date('2026-01-23T08:45:33'), signature: '2mWv8...' },
-        { wallet: 'Marketing Wallet', type: 'buy', amount: 75000000, time: new Date('2026-01-22T18:20:15'), signature: '9zRt5...' },
-        { wallet: 'Treasury Wallet', type: 'burn', amount: 10000000, time: new Date('2026-01-21T12:00:00'), signature: '4jLs1...' },
-        { wallet: 'Dev Wallet', type: 'sell', amount: 30000000, time: new Date('2026-01-20T14:30:45'), signature: '6hNp3...' },
-      ];
-      
       try {
         const txs = await fetchTransactions();
-        const allTxs = [...placeholderTxs, ...txs];
+        
+        // Limit to the 8 most recent transactions
+        const allTxs = txs.slice(0, 8);
+        
         const txList = document.getElementById('txList');
         
         if (allTxs.length === 0) {
-          txList.innerHTML = '<div class="tx-item">No recent tracked transactions</div>';
+          txList.innerHTML = '<div class="tx-item">No recent tracked transactions found.</div>';
           txList.className = '';
           return;
         }
         
-        txList.className = ''; // Remove loading class
+        txList.className = '';
         
-        // Initialize the Card HTML structure
-        let tableHTML = `<div class="tx-card">`;
+        let tableHTML = `<div class="tx-card"><div class="tx-scroll-wrapper">`;
         
-        // --- Header Row ---
         tableHTML += `
           <div class="tx-table-header">
             <div class="tx-col tx-col-action">
@@ -507,23 +510,19 @@
           </div>
         `;
         
-        // --- Data Rows ---
         tableHTML += allTxs.map(tx => {
           const timeStr = tx.time ? tx.time.toLocaleDateString('en-GB') : 'Unknown';
           const amountStr = (tx.amount / 1e6).toFixed(2);
           const txSignature = tx.signature || 'N/A';
           const solscanUrl = tx.signature ? `https://solscan.io/tx/${tx.signature}` : '#';
           
-          // Determine Badge Class
           let badgeClass = 'neutral';
           if (tx.type === 'buy') badgeClass = 'buy';
           if (tx.type === 'sell') badgeClass = 'sell';
           
-          // Render Row
           return `
             <div class="tx-table-row">
               <div class="tx-col tx-col-action">
-                <!-- Badge + Text structure from reference -->
                 <span class="tx-badge ${badgeClass}">${tx.type.toUpperCase()}</span>
                 <span class="tx-main-text"></span> 
               </div>
@@ -539,7 +538,7 @@
           `;
         }).join('');
         
-        tableHTML += `</div>`; // Close .tx-card
+        tableHTML += `</div></div>`; // Close wrapper and card
         txList.innerHTML = tableHTML;
         
       } catch (err) {
