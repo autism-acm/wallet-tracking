@@ -18,31 +18,32 @@
     }
     #container {
       max-width: 1200px;
-      margin: 0 auto;
+      margin: 0;
     }
     #chartContainer {
       max-width: 400px;
-      margin: 0 auto 24px;
+      margin: 0 0 24px 0;
       position: relative;
     }
     #transactionsContainer {
       max-width: 800px;
-      margin: 0 auto;
+      margin: 0;
       max-height: 600px;
-      overflow-y: scroll;
+      overflow-y: auto;
+      overflow-x: auto;
       scrollbar-width: none;
     }
     #transactionsContainer::-webkit-scrollbar {
       display: none;
     }
     .loading {
-      text-align: center;
-      padding: 48px;
+      text-align: left;
+      padding: 48px 0;
       font-size: 14px;
     }
     .error {
-      text-align: center;
-      padding: 48px;
+      text-align: left;
+      padding: 48px 0;
       font-size: 14px;
       color: #ff605c;
     }
@@ -96,6 +97,7 @@
       display: inline-block;
       font-family: 'Sora', sans-serif;
       letter-spacing: -0.06em;
+      white-space: nowrap;
     }
     .tx-action.buy {
       background: #00A78D;
@@ -117,19 +119,14 @@
       color: #8e8e8e;
       margin-top: 4px;
       font-family: 'Sora', sans-serif;
+      letter-spacing: -0.06em;
+      white-space: nowrap;
     }
     h3 {
       margin-top: 0;
       font-size: 16px;
       margin-bottom: 16px;
-      text-align: center;
-    }
-    
-    @media (min-width: 768px) {
-      #chartContainer {
-        margin-left: 0;
-        margin-right: auto;
-      }
+      text-align: left;
     }
   </style>
 </head>
@@ -150,11 +147,20 @@
   <script>
     const TOKEN_ADDRESS = '8tnYkdbAi8hqKbsEw81HMrrzHXnhB59mhs9eWofEpump';
     
-    // EDITABLE: Customize wallet labels
+    // EDITABLE: Customize wallet labels and tooltips
     const TRACKED_WALLETS = {
-      'ExnewHTbYSPvwU9Csrd98ZbP7C9x7zF6E6XVvJwoZuTf': 'Dev Wallet',
-      'PLACEHOLDER_WALLET_1': 'Marketing Wallet',
-      'PLACEHOLDER_WALLET_2': 'Treasury Wallet'
+      'ExnewHTbYSPvwU9Csrd98ZbP7C9x7zF6E6XVvJwoZuTf': {
+        label: 'Dev Wallet',
+        tooltip: '<strong>Dev Wallet</strong><br>Main development wallet'
+      },
+      'PLACEHOLDER_WALLET_1': {
+        label: 'Marketing Wallet',
+        tooltip: '<strong>Marketing Wallet</strong><br>Handles marketing expenses'
+      },
+      'PLACEHOLDER_WALLET_2': {
+        label: 'Treasury Wallet',
+        tooltip: '<strong>Treasury Wallet</strong><br>Treasury reserves'
+      }
     };
     
     // EDITABLE: Customize liquidity pool tooltip
@@ -162,7 +168,7 @@
     
     const RAINBOW_COLORS = ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF', '#E0BBE4'];
     const HELIUS_API = '69962546-7dad-4593-b0a3-2d43dc14974a';
-    const PUMPFUN_PROGRAM = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'; // Pump.fun program ID
+    const PUMPFUN_PROGRAM = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
     
     let holdersData = [];
     let chartInstance = null;
@@ -179,15 +185,33 @@
       }, 2000);
     }
     
-    function isPumpfunPool(owner) {
-      // Check if address is likely pump.fun bonding curve or pool
-      // Pump.fun uses deterministic PDAs, often the largest holder is the bonding curve
-      return owner.startsWith('6') || owner.startsWith('7') || owner.startsWith('8');
+    async function identifyPumpfunBondingCurve(tokenMint, connection) {
+      try {
+        // Pump.fun uses a deterministic PDA for bonding curves
+        // The bonding curve is derived from [b"bonding-curve", mint, program_id]
+        const seeds = [
+          Buffer.from('bonding-curve'),
+          new solanaWeb3.PublicKey(tokenMint).toBuffer()
+        ];
+        
+        const [bondingCurvePDA] = await solanaWeb3.PublicKey.findProgramAddress(
+          seeds,
+          new solanaWeb3.PublicKey(PUMPFUN_PROGRAM)
+        );
+        
+        return bondingCurvePDA.toBase58();
+      } catch (e) {
+        console.error('Error deriving bonding curve PDA:', e);
+        return null;
+      }
     }
     
     async function fetchTokenHolders() {
       const connection = new solanaWeb3.Connection(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API}`, 'confirmed');
       const tokenMint = new solanaWeb3.PublicKey(TOKEN_ADDRESS);
+      
+      // Identify the bonding curve
+      const bondingCurveAddress = await identifyPumpfunBondingCurve(TOKEN_ADDRESS, connection);
       
       const accounts = await connection.getTokenLargestAccounts(tokenMint);
       
@@ -196,10 +220,12 @@
           try {
             const accountInfo = await connection.getParsedAccountInfo(acc.address);
             if (accountInfo.value && accountInfo.value.data.parsed) {
+              const owner = accountInfo.value.data.parsed.info.owner;
               return {
-                owner: accountInfo.value.data.parsed.info.owner,
+                owner: owner,
                 amount: parseInt(accountInfo.value.data.parsed.info.tokenAmount.amount),
-                address: acc.address.toBase58()
+                address: acc.address.toBase58(),
+                isLP: bondingCurveAddress && owner === bondingCurveAddress
               };
             }
           } catch (e) {
@@ -211,16 +237,6 @@
       
       const holders = holdersDataRaw.filter(h => h && h.amount > 0);
       holders.sort((a, b) => b.amount - a.amount);
-      
-      // Mark liquidity pool (largest holder that's not a tracked wallet)
-      let lpIndex = -1;
-      for (let i = 0; i < holders.length; i++) {
-        if (!TRACKED_WALLETS[holders[i].owner]) {
-          holders[i].isLP = true;
-          lpIndex = i;
-          break;
-        }
-      }
       
       const top24 = holders.slice(0, 24);
       const rest = holders.slice(24);
@@ -249,18 +265,17 @@
             
             if (!tx || !tx.meta) continue;
             
-            const instructions = tx.transaction.message.instructions;
             const accountKeys = tx.transaction.message.accountKeys.map(k => k.pubkey.toBase58());
             
             // Find tracked wallet involvement
-            const trackedWallet = Object.keys(TRACKED_WALLETS).find(w => accountKeys.includes(w));
+            const trackedWalletKey = Object.keys(TRACKED_WALLETS).find(w => accountKeys.includes(w));
             
-            if (trackedWallet) {
+            if (trackedWalletKey) {
               const preBalances = tx.meta.preTokenBalances || [];
               const postBalances = tx.meta.postTokenBalances || [];
               
-              const preBalance = preBalances.find(b => b.owner === trackedWallet);
-              const postBalance = postBalances.find(b => b.owner === trackedWallet);
+              const preBalance = preBalances.find(b => b.owner === trackedWalletKey);
+              const postBalance = postBalances.find(b => b.owner === trackedWalletKey);
               
               if (preBalance && postBalance) {
                 const preBal = parseInt(preBalance.uiTokenAmount.amount);
@@ -273,8 +288,8 @@
                   if (diff < 0) txType = 'sell';
                   
                   txs.push({
-                    wallet: TRACKED_WALLETS[trackedWallet],
-                    walletAddress: trackedWallet,
+                    wallet: TRACKED_WALLETS[trackedWalletKey].label,
+                    walletAddress: trackedWalletKey,
                     type: txType,
                     amount: Math.abs(diff),
                     time: sig.blockTime ? new Date(sig.blockTime * 1000) : null
@@ -311,28 +326,26 @@
         
         const total = holdersData.reduce((sum, h) => sum + h.amount, 0);
         
-        // Assign colors: LP gets #cecece, tracked wallets get first 3 pastels, others get remaining pastels, rest get #8e8e8e
-        let pastellIndex = 0;
+        // Assign colors: LP gets #cecece, tracked wallets and others get pastels (once, no cycling), rest get #8e8e8e
+        let pastelIndex = 0;
         const colors = holdersData.map((h) => {
           if (h.isLP) return '#cecece';
           if (h.isRest) return '#8e8e8e';
-          if (TRACKED_WALLETS[h.owner]) {
-            const color = RAINBOW_COLORS[pastellIndex % RAINBOW_COLORS.length];
-            pastellIndex++;
+          
+          // Check if tracked wallet or regular wallet
+          if (pastelIndex < RAINBOW_COLORS.length) {
+            const color = RAINBOW_COLORS[pastelIndex];
+            pastelIndex++;
             return color;
           }
-          if (pastellIndex < RAINBOW_COLORS.length) {
-            const color = RAINBOW_COLORS[pastellIndex % RAINBOW_COLORS.length];
-            pastellIndex++;
-            return color;
-          }
+          
           return '#8e8e8e';
         });
         
         const labels = holdersData.map((h, i) => {
           if (h.isRest) return 'The Rest';
           if (h.isLP) return '💧 Pump.fun Pool';
-          if (TRACKED_WALLETS[h.owner]) return TRACKED_WALLETS[h.owner];
+          if (TRACKED_WALLETS[h.owner]) return TRACKED_WALLETS[h.owner].label;
           return `Wallet ${i + 1}`;
         });
         
@@ -387,7 +400,7 @@
                 if (holder.isLP) {
                   tooltipText = LIQUIDITY_POOL_TOOLTIP + `<br>${percent}%`;
                 } else if (TRACKED_WALLETS[holder.owner]) {
-                  tooltipText = `<strong>${TRACKED_WALLETS[holder.owner]}</strong><br>${percent}%<br><small>${holder.owner.substring(0, 8)}...${holder.owner.substring(holder.owner.length - 8)}</small>`;
+                  tooltipText = TRACKED_WALLETS[holder.owner].tooltip + `<br>${percent}%<br><small>${holder.owner.substring(0, 8)}...${holder.owner.substring(holder.owner.length - 8)}</small>`;
                 } else if (!holder.isRest) {
                   tooltipText += `<br><small>${holder.owner.substring(0, 8)}...${holder.owner.substring(holder.owner.length - 8)}</small>`;
                 }
@@ -415,13 +428,16 @@
         
         if (txs.length === 0) {
           txList.innerHTML = '<div class="tx-item">No recent tracked transactions</div>';
+          txList.className = '';
           return;
         }
+        
+        txList.className = '';
         
         // Render transactions stacked vertically, most recent on top
         txList.innerHTML = txs.map(tx => {
           const timeStr = tx.time ? tx.time.toLocaleString() : 'Unknown time';
-          const amountStr = (tx.amount / 1e6).toFixed(2); // Assuming 6 decimals
+          const amountStr = (tx.amount / 1e6).toFixed(2);
           
           return `
             <div class="tx-item">
