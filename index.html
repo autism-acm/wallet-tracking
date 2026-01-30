@@ -52,25 +52,22 @@
       margin-bottom: 54px;
     }
 
-    /* --- Card & Scroll Logic --- */
     .tx-card {
       background-color: #232016;
       border: 1px solid #36342e;
       border-radius: 12px;
-      overflow: hidden; /* Keeps border radius intact */
+      overflow: hidden;
       display: flex;
       flex-direction: column;
     }
 
-    /* Wrapper for horizontal scrolling */
     .tx-scroll-wrapper {
       overflow-x: auto;
       width: 100%;
-      -webkit-overflow-scrolling: touch; /* Smooth scroll on iOS */
+      -webkit-overflow-scrolling: touch;
     }
 
     .tx-table-header, .tx-table-row {
-      /* Ensure minimum width so it forces scroll on mobile instead of crunching */
       min-width: 600px; 
     }
 
@@ -101,6 +98,8 @@
       display: flex;
       align-items: center;
       justify-content: flex-start;
+      /* CRITICAL FIX: Force single line to enable scrolling without wrapping */
+      white-space: nowrap;
     }
 
     .tx-col-action { flex: 1 1 30%; }
@@ -141,7 +140,7 @@
       font-size: 11px;
       font-weight: 600;
       margin-right: 8px;
-      white-space: nowrap; /* Prevent badge text from wrapping */
+      white-space: nowrap; /* Ensure badge text doesn't wrap */
     }
 
     .tx-badge.buy {
@@ -230,25 +229,16 @@
     // EASY EDIT SECTION: Customize your tracked wallets here
     // ============================================================================
     const TRACKED_WALLETS = {
-      // Dev Wallet - Main development wallet
       'ExnewHTbYSPvwU9Csrd98ZbP7C9x7zF6E6XVvJwoZuTf': {
         label: 'Dev Wallet',
         tooltip: '<strong>Dev Wallet</strong><br>Main development wallet'
       },
-      
-      // TODO: LOOK AT THE CHART OUTPUT ONCE LOADED.
-      // FIND THE ADDRESS OF THE 2ND LARGEST HOLDER.
-      // PASTE THE ADDRESS BELOW REPLACING 'REPLACE_ME...' AND UPDATE THE LABEL.
       'A2WYfTmVKzpqXFGPd4t3PMHiMqnw72iuPT9cAPcNjoAV': {
-        label: 'My second wallet', 
+        label: 'Wallet #2', 
         tooltip: '<strong>Wallet #2</strong><br>Update description'
       },
-      
-      // TODO: LOOK AT THE CHART OUTPUT ONCE LOADED.
-      // FIND THE ADDRESS OF THE 3RD LARGEST HOLDER.
-      // PASTE THE ADDRESS BELOW REPLACING 'REPLACE_ME...' AND UPDATE THE LABEL.
       'ALAVn3AxBoSybZLSX2yMepcx4NRM23JTU3wh1HdRVAY': {
-        label: 'My third wallet',
+        label: 'Wallet #3',
         tooltip: '<strong>Wallet #3</strong><br>Update description'
       }
     };
@@ -256,19 +246,19 @@
     
     const LIQUIDITY_POOL_TOOLTIP = '💧 Pump.fun Bonding Curve<br>Liquidity provider for this token';
     
-    // Palette of 7 colors. Unused ones are commented out for you to reference later.
     const RAINBOW_COLORS = [
-      '#FFB3BA', // 1. Pink
-      '#FFDFBA', // 2. Orange
-      '#FFFFBA', // 3. Yellow
-      // '#BAFFC9', // 4. Green (Uncomment if you add a 4th tracked wallet)
-      // '#BAE1FF', // 5. Blue (Uncomment if you add a 5th tracked wallet)
-      // '#E0BBE4', // 6. Purple (Uncomment if you add a 6th tracked wallet)
-      // '#C7CEEA'  // 7. Periwinkle (Uncomment if you add a 7th tracked wallet)
+      '#FFB3BA', 
+      '#FFDFBA', 
+      '#FFFFBA',
+      // '#BAFFC9', 
+      // '#BAE1FF', 
+      // '#E0BBE4', 
+      // '#C7CEEA'
     ];
     
     const HELIUS_API = '69962546-7dad-4593-b0a3-2d43dc14974a';
-    const PUMPFUN_PROGRAM = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
+    const TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+    const STREAMFLOW_PROGRAM_ID = 'strmRqUCoQUtwGU3tYvhUxC1WQ9V1bD1uM73SqueHF';
     
     let holdersData = [];
     let chartInstance = null;
@@ -319,6 +309,46 @@
       
       return finalData;
     }
+
+    // --- SMART TRANSACTION ANALYSIS HELPER ---
+    function detectTransactionType(tx, tokenAddress, trackedWalletKey) {
+      const checkInstruction = (ix) => {
+        // 1. BURN LOGIC
+        if (ix.programId === TOKEN_PROGRAM_ID && ix.parsed) {
+          const type = ix.parsed.type;
+          if (type === 'burn' || type === 'burnChecked') {
+            if (ix.parsed.info.mint === tokenAddress && ix.parsed.info.owner === trackedWalletKey) {
+              return 'burn';
+            }
+          }
+        }
+
+        // 2. LOCK LOGIC
+        if (ix.programId === STREAMFLOW_PROGRAM_ID) {
+          return 'lock';
+        }
+        
+        return null;
+      };
+
+      // Outer instructions
+      const instructions = tx.transaction.message.instructions || [];
+      for (const ix of instructions) {
+        const result = checkInstruction(ix);
+        if (result) return result;
+      }
+
+      // Inner instructions (CPI)
+      const innerInstructions = tx.meta.innerInstructions || [];
+      for (const ixGroup of innerInstructions) {
+        for (const ix of ixGroup.instructions) {
+          const result = checkInstruction(ix);
+          if (result) return result;
+        }
+      }
+
+      return null;
+    }
     
     async function fetchTransactions() {
       try {
@@ -343,25 +373,26 @@
               const preBalance = preBalances.find(b => b.owner === trackedWalletKey);
               const postBalance = postBalances.find(b => b.owner === trackedWalletKey);
               
-              if (preBalance && postBalance) {
-                const preBal = parseInt(preBalance.uiTokenAmount.amount);
-                const postBal = parseInt(postBalance.uiTokenAmount.amount);
-                const diff = postBal - preBal;
+              const preBal = preBalance ? parseInt(preBalance.uiTokenAmount.amount) : 0;
+              const postBal = postBalance ? parseInt(postBalance.uiTokenAmount.amount) : 0;
+              const diff = postBal - preBal;
+              
+              if (diff !== 0) {
+                let txType = detectTransactionType(tx, TOKEN_ADDRESS, trackedWalletKey);
                 
-                if (diff !== 0) {
-                  let txType = 'transfer';
+                if (!txType) {
                   if (diff > 0) txType = 'buy';
-                  if (diff < 0) txType = 'sell';
-                  
-                  txs.push({
-                    wallet: TRACKED_WALLETS[trackedWalletKey].label,
-                    walletAddress: trackedWalletKey,
-                    type: txType,
-                    amount: Math.abs(diff),
-                    time: sig.blockTime ? new Date(sig.blockTime * 1000) : null,
-                    signature: sig.signature
-                  });
+                  else if (diff < 0) txType = 'sell';
                 }
+
+                txs.push({
+                  wallet: TRACKED_WALLETS[trackedWalletKey].label,
+                  walletAddress: trackedWalletKey,
+                  type: txType,
+                  amount: Math.abs(diff),
+                  time: sig.blockTime ? new Date(sig.blockTime * 1000) : null,
+                  signature: sig.signature
+                });
               }
             }
           } catch (e) { console.error('Error parsing tx:', e); }
@@ -388,23 +419,17 @@
         const total = holdersData.reduce((sum, h) => sum + h.amount, 0);
         
         let pastelIndex = 0;
-        
-        // Updated Color Logic: Only assign colors to tracked wallets
         const colors = holdersData.map((h, i) => {
-          if (i === 0) return '#cecece'; // LP Placeholder
-          if (h.isRest) return '#8e8e8e'; // The Rest
+          if (i === 0) return '#cecece'; 
+          if (h.isRest) return '#8e8e8e';
           
-          // Check if this wallet is in our tracked list
           if (TRACKED_WALLETS[h.owner]) {
-             // Assign next available color
              if (pastelIndex < RAINBOW_COLORS.length) {
-                const color = RAINBOW_COLORS[pastelIndex];
-                pastelIndex++;
+                const color = RAINBOW_COLORS[pastelIndex++];
                 return color;
              }
           }
           
-          // If not tracked, or we ran out of custom colors, use gray
           return '#8e8e8e';
         });
         
@@ -538,7 +563,7 @@
           `;
         }).join('');
         
-        tableHTML += `</div></div>`; // Close wrapper and card
+        tableHTML += `</div></div>`; 
         txList.innerHTML = tableHTML;
         
       } catch (err) {
