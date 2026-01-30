@@ -10,11 +10,13 @@
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400&display=swap" rel="stylesheet">
   <style>
     body {
-      font-family: 'IBM Plex Mono', monospace;
+      font-family: 'Sora', sans-serif;
       background: #2a271e;
       color: #cecece;
       padding: 24px;
       margin: 0;
+      letter-spacing: -0.06em;
+      font-weight: 400;
     }
     #container {
       max-width: 1200px;
@@ -28,8 +30,6 @@
     #transactionsContainer {
       max-width: 800px;
       margin: 0;
-      max-height: 600px;
-      overflow-y: auto;
       overflow-x: auto;
       scrollbar-width: none;
     }
@@ -84,55 +84,123 @@
     #pieChart {
       cursor: pointer;
     }
-    .tx-item {
-      margin-bottom: 4px;
-      font-family: 'Sora', sans-serif;
-      letter-spacing: -0.06em;
-      font-weight: 400;
-    }
-    .tx-action {
-      padding: 6px 16px;
-      border-radius: 12px;
-      font-size: 14px;
-      display: inline-block;
-      font-family: 'Sora', sans-serif;
-      letter-spacing: -0.06em;
-      white-space: nowrap;
-    }
-    .tx-action.buy {
-      background: #00A78D;
-      border: 1px solid #001F1A63;
-      color: #ffffff;
-    }
-    .tx-action.sell {
-      background: #CF206D;
-      border: 1px solid #3F002063;
-      color: #ffffff;
-    }
-    .tx-action.transfer {
-      background: #232016;
-      border: 1px solid #36342E;
-      color: #cecece;
-    }
-    .tx-details {
-      font-size: 12px;
-      color: #8e8e8e;
-      margin-top: 4px;
-      font-family: 'Sora', sans-serif;
-      letter-spacing: -0.06em;
-      white-space: nowrap;
-    }
     h3 {
       margin-top: 0;
       font-size: 16px;
       margin-bottom: 16px;
       text-align: left;
     }
+    
+    /* Table styling */
+    .tx-table-header {
+      background-color: #2a271e;
+      border-style: solid;
+      border-color: #36342e;
+      border-top-width: 0px;
+      border-right-width: 0px;
+      border-bottom-width: 0px;
+      border-left-width: 0px;
+      align-items: center;
+      padding: 0;
+      margin-bottom: 0px;
+      display: flex;
+    }
+    
+    .tx-table-row {
+      border-color: #2a271e;
+      border-top-width: 0px;
+      border-right-width: 0px;
+      border-bottom-width: 1px;
+      border-left-width: 0px;
+      border-style: solid;
+      align-items: center;
+      margin-bottom: 0px;
+      display: flex;
+      overflow: visible;
+    }
+    
+    .tx-col {
+      padding: 4px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      column-gap: 8px;
+    }
+    
+    .tx-col-action {
+      flex: 1 1 calc(30% - 0px);
+      min-width: 150px;
+    }
+    
+    .tx-col-wallet {
+      flex: 1 1 calc(40% - 0px);
+      min-width: 200px;
+    }
+    
+    .tx-col-date {
+      flex: 1 1 calc(30% - 0px);
+      min-width: 150px;
+    }
+    
+    .tx-header-text {
+      font-size: 14px;
+      color: #cecece;
+    }
+    
+    .tx-action-text {
+      font-size: 16px;
+      font-weight: 400;
+    }
+    
+    .tx-action-text.buy {
+      color: #00A78D;
+    }
+    
+    .tx-action-text.sell {
+      color: #CF206D;
+    }
+    
+    .tx-action-text.transfer,
+    .tx-action-text.lock,
+    .tx-action-text.burn {
+      color: #ffffff;
+    }
+    
+    .tx-badge {
+      background-color: #f4eac5;
+      border-radius: 4px;
+      border: 1px solid #f4eac5;
+      padding: 4px 8px;
+      margin: 0;
+      overflow: hidden;
+    }
+    
+    .tx-badge-text {
+      font-size: 11px;
+      color: #000000;
+      margin: 0;
+    }
+    
+    .tx-wallet-text {
+      font-size: 14px;
+      color: #8e8e8e;
+    }
+    
+    .tx-date-text {
+      font-size: 14px;
+      color: #ffffff;
+    }
+    
+    .tx-url-text {
+      font-size: 14px;
+      color: #8e8e8e;
+    }
   </style>
 </head>
 <body>
   <div id="container">
     <div id="chartContainer">
+      <h3>Token Holders</h3>
       <div class="loading">Loading holders...</div>
       <canvas id="pieChart" style="display:none;"></canvas>
     </div>
@@ -185,33 +253,9 @@
       }, 2000);
     }
     
-    async function identifyPumpfunBondingCurve(tokenMint, connection) {
-      try {
-        // Pump.fun uses a deterministic PDA for bonding curves
-        // The bonding curve is derived from [b"bonding-curve", mint, program_id]
-        const seeds = [
-          Buffer.from('bonding-curve'),
-          new solanaWeb3.PublicKey(tokenMint).toBuffer()
-        ];
-        
-        const [bondingCurvePDA] = await solanaWeb3.PublicKey.findProgramAddress(
-          seeds,
-          new solanaWeb3.PublicKey(PUMPFUN_PROGRAM)
-        );
-        
-        return bondingCurvePDA.toBase58();
-      } catch (e) {
-        console.error('Error deriving bonding curve PDA:', e);
-        return null;
-      }
-    }
-    
     async function fetchTokenHolders() {
       const connection = new solanaWeb3.Connection(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API}`, 'confirmed');
       const tokenMint = new solanaWeb3.PublicKey(TOKEN_ADDRESS);
-      
-      // Identify the bonding curve
-      const bondingCurveAddress = await identifyPumpfunBondingCurve(TOKEN_ADDRESS, connection);
       
       const accounts = await connection.getTokenLargestAccounts(tokenMint);
       
@@ -224,8 +268,7 @@
               return {
                 owner: owner,
                 amount: parseInt(accountInfo.value.data.parsed.info.tokenAmount.amount),
-                address: acc.address.toBase58(),
-                isLP: bondingCurveAddress && owner === bondingCurveAddress
+                address: acc.address.toBase58()
               };
             }
           } catch (e) {
@@ -326,10 +369,10 @@
         
         const total = holdersData.reduce((sum, h) => sum + h.amount, 0);
         
-        // Assign colors: LP gets #cecece, tracked wallets and others get pastels (once, no cycling), rest get #8e8e8e
+        // Assign colors: First holder (LP placeholder) gets #cecece, tracked wallets and others get pastels (once, no cycling), rest get #8e8e8e
         let pastelIndex = 0;
-        const colors = holdersData.map((h) => {
-          if (h.isLP) return '#cecece';
+        const colors = holdersData.map((h, i) => {
+          if (i === 0) return '#cecece'; // LP placeholder
           if (h.isRest) return '#8e8e8e';
           
           // Check if tracked wallet or regular wallet
@@ -344,7 +387,7 @@
         
         const labels = holdersData.map((h, i) => {
           if (h.isRest) return 'The Rest';
-          if (h.isLP) return '💧 Pump.fun Pool';
+          if (i === 0) return '💧 LP (Placeholder)'; // Mark first as LP placeholder
           if (TRACKED_WALLETS[h.owner]) return TRACKED_WALLETS[h.owner].label;
           return `Wallet ${i + 1}`;
         });
@@ -397,8 +440,8 @@
                 let tooltipText = `<strong>${labels[index]}</strong><br>${percent}%`;
                 
                 // EDITABLE: Customize tooltips here
-                if (holder.isLP) {
-                  tooltipText = LIQUIDITY_POOL_TOOLTIP + `<br>${percent}%`;
+                if (index === 0) {
+                  tooltipText = '💧 LP (Placeholder)<br>Manually add correct LP later<br>' + percent + '%';
                 } else if (TRACKED_WALLETS[holder.owner]) {
                   tooltipText = TRACKED_WALLETS[holder.owner].tooltip + `<br>${percent}%<br><small>${holder.owner.substring(0, 8)}...${holder.owner.substring(holder.owner.length - 8)}</small>`;
                 } else if (!holder.isRest) {
@@ -422,11 +465,24 @@
     }
     
     async function renderTransactions() {
+      // Add placeholder transactions for testing
+      const placeholderTxs = [
+        { wallet: 'Dev Wallet', type: 'buy', amount: 170390000, time: new Date('2026-01-26T00:00:18') },
+        { wallet: 'Marketing Wallet', type: 'sell', amount: 50000000, time: new Date('2026-01-25T15:30:22') },
+        { wallet: 'Treasury Wallet', type: 'lock', amount: 100000000, time: new Date('2026-01-24T10:15:00') },
+        { wallet: 'Dev Wallet', type: 'transfer', amount: 25000000, time: new Date('2026-01-23T08:45:33') },
+        { wallet: 'Marketing Wallet', type: 'buy', amount: 75000000, time: new Date('2026-01-22T18:20:15') },
+        { wallet: 'Treasury Wallet', type: 'burn', amount: 10000000, time: new Date('2026-01-21T12:00:00') },
+        { wallet: 'Dev Wallet', type: 'sell', amount: 30000000, time: new Date('2026-01-20T14:30:45') },
+      ];
+      
       try {
         const txs = await fetchTransactions();
+        const allTxs = [...placeholderTxs, ...txs];
+        
         const txList = document.getElementById('txList');
         
-        if (txs.length === 0) {
+        if (allTxs.length === 0) {
           txList.innerHTML = '<div class="tx-item">No recent tracked transactions</div>';
           txList.className = '';
           return;
@@ -434,20 +490,46 @@
         
         txList.className = '';
         
-        // Render transactions stacked vertically, most recent on top
-        txList.innerHTML = txs.map(tx => {
-          const timeStr = tx.time ? tx.time.toLocaleString() : 'Unknown time';
+        // Create table header
+        let tableHTML = `
+          <div class="tx-table-header">
+            <div class="tx-col tx-col-action">
+              <span class="tx-header-text">Action</span>
+            </div>
+            <div class="tx-col tx-col-wallet">
+              <span class="tx-header-text">Wallet & Amount</span>
+            </div>
+            <div class="tx-col tx-col-date">
+              <span class="tx-header-text">Date & Details</span>
+            </div>
+          </div>
+        `;
+        
+        // Render transactions as table rows
+        tableHTML += allTxs.map(tx => {
+          const timeStr = tx.time ? tx.time.toLocaleDateString('en-GB') : 'Unknown';
           const amountStr = (tx.amount / 1e6).toFixed(2);
           
           return `
-            <div class="tx-item">
-              <div class="tx-action ${tx.type}">${tx.type.toUpperCase()}</div>
-              <div class="tx-details">
-                ${tx.wallet} • ${amountStr} tokens • ${timeStr}
+            <div class="tx-table-row">
+              <div class="tx-col tx-col-action">
+                <span class="tx-action-text ${tx.type}">${tx.type.toUpperCase()}</span>
+                <div class="tx-badge">
+                  <span class="tx-badge-text">MVP</span>
+                </div>
+              </div>
+              <div class="tx-col tx-col-wallet">
+                <span class="tx-wallet-text">${tx.wallet} • ${amountStr}M tokens</span>
+              </div>
+              <div class="tx-col tx-col-date">
+                <span class="tx-date-text">${timeStr}</span>
+                <span class="tx-url-text">View TX</span>
               </div>
             </div>
           `;
         }).join('');
+        
+        txList.innerHTML = tableHTML;
       } catch (err) {
         console.error('TX error:', err);
         document.getElementById('txList').innerHTML = '<div class="error">Error loading transactions</div>';
