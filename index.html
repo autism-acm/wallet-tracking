@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.87.6/lib/index.iife.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -157,6 +158,20 @@
       color: #000000;
     }
 
+    /* Styling for LOCK: Blue bg, border, NO underline */
+    .tx-badge.lock {
+      background-color: #1936F9;
+      border: 1px solid #1F5AFF;
+      color: #ffffff;
+    }
+
+    /* Styling for UNLOCK: Neutral bg, but WITH underline to signal tooltip */
+    .tx-badge.unlock {
+      background-color: #f4eac5;
+      color: #000000;
+      text-decoration: underline;
+    }
+
     .loading {
       text-align: left;
       padding: 48px 0;
@@ -166,7 +181,6 @@
 
     .tooltip-container {
       display: none;
-      position: fixed;
       background: #232016;
       border: 1px solid #36342E;
       border-radius: 12px;
@@ -203,17 +217,14 @@
 </head>
 <body>
   <div id="container">
-    <!-- SECTION 1: TOKEN HOLDERS CHART -->
     <div id="chartContainer">
       <h3>Token Holders</h3>
       <div class="loading">Loading holders...</div>
       <canvas id="pieChart" style="display:none;"></canvas>
     </div>
 
-    <!-- SECTION 2: RECENT ACTIONS -->
     <div id="transactionsContainer">
       <h3>Recent Actions</h3>
-      
       <div id="txList" class="loading">Loading transactions...</div>
     </div>
   </div>
@@ -224,9 +235,6 @@
   <script>
     const TOKEN_ADDRESS = '8tnYkdbAi8hqKbsEw81HMrrzHXnhB59mhs9eWofEpump';
     
-    // ============================================================================
-    // EASY EDIT SECTION: Customize your tracked wallets here
-    // ============================================================================
     const TRACKED_WALLETS = {
       'ExnewHTbYSPvwU9Csrd98ZbP7C9x7zF6E6XVvJwoZuTf': {
         label: 'Dev Wallet',
@@ -241,33 +249,29 @@
         tooltip: '<strong>Wallet #3</strong><br>Update description'
       }
     };
-    // ============================================================================
     
     const LIQUIDITY_POOL_TOOLTIP = '💧 Pump.fun Bonding Curve<br>Liquidity provider for this token';
     
     const RAINBOW_COLORS = [
       '#FFB3BA', 
       '#FFDFBA', 
-      '#FFFFBA',
-      // '#BAFFC9', 
-      // '#BAE1FF', 
-      // '#E0BBE4', 
-      // '#C7CEEA'
+      '#FFFFBA'
     ];
     
     const HELIUS_API = '69962546-7dad-4593-b0a3-2d43dc14974a';
     const TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
     
-    // FIX: All 3 Streamflow Program IDs based on Documentation
     const STREAMFLOW_PROGRAM_IDS = [
-      'strmRqUCoQUgGUan5YhzUZa6KqdzwX5L6FpUxfmKg5m', // Vesting V2 (Main)
-      'strmRqcWBCBbhsU1bsYmXv2SgDgYYsLPCGWTzK8W2hVQ', // Vesting V1 (Legacy)
-      'strmRqUCoQUtwGU3tYhzUxC1WQ9V1bD1uM73SqueHF'  // Payment
+      'strmRqUCoQUgGUan5YhzUZa6KqdzwX5L6FpUxfmKg5m', 
+      'strmRqcWBCBbhsU1bsYmXv2SgDgYYsLPCGWTzK8W2hVQ', 
+      'strmRqUCoQUtwGU3tYhzUxC1WQ9V1bD1uM73SqueHF'
     ];
     
     let holdersData = [];
     let chartInstance = null;
-    
+    let popperInstance = null;
+    const tooltipEl = document.getElementById('tooltip');
+
     function showToast(message = 'Copied!') {
       const toast = document.getElementById('toast');
       toast.textContent = message;
@@ -277,6 +281,33 @@
         toast.style.opacity = '0';
         toast.style.transform = 'translateY(20px)';
       }, 2000);
+    }
+
+    function showTooltip(referenceElement, content) {
+      tooltipEl.innerHTML = content;
+      tooltipEl.classList.add('show');
+
+      if (popperInstance) {
+        popperInstance.destroy();
+      }
+
+      popperInstance = Popper.createPopper(referenceElement, tooltipEl, {
+        placement: 'top',
+        modifiers: [
+          {
+            name: 'offset',
+            options: { offset: [0, 8] }
+          },
+          {
+            name: 'preventOverflow',
+            options: { boundary: document.body }
+          }
+        ]
+      });
+    }
+
+    function hideTooltip() {
+      tooltipEl.classList.remove('show');
     }
     
     async function fetchTokenHolders() {
@@ -315,10 +346,8 @@
       return finalData;
     }
 
-    // --- SMART TRANSACTION ANALYSIS HELPER ---
     function detectTransactionType(tx, tokenAddress, trackedWalletKey) {
       const checkInstruction = (ix) => {
-        // 1. BURN LOGIC
         if (ix.programId === TOKEN_PROGRAM_ID && ix.parsed) {
           const type = ix.parsed.type;
           if (type === 'burn' || type === 'burnChecked') {
@@ -330,7 +359,6 @@
         return null;
       };
 
-      // 2. BURN CHECK (Outer & Inner)
       const instructions = tx.transaction.message.instructions || [];
       for (const ix of instructions) {
         const result = checkInstruction(ix);
@@ -344,20 +372,17 @@
         }
       }
 
-      // 3. STREAMFLOW LOGIC (Log Parsing)
       if (tx.meta.logMessages) {
         const isStreamflowProgram = tx.meta.logMessages.some(log => 
           STREAMFLOW_PROGRAM_IDS.some(id => log.includes(id))
         );
         
         if (isStreamflowProgram) {
-          // Check for UNLOCK (Withdraw)
           const isWithdraw = tx.meta.logMessages.some(log => 
             log.includes('Instruction: Withdraw')
           );
           if (isWithdraw) return 'unlock';
 
-          // Check for LOCK (Create)
           const isCreate = tx.meta.logMessages.some(log => 
             log.includes('Instruction: Create')
           );
@@ -373,7 +398,6 @@
         const connection = new solanaWeb3.Connection(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API}`, 'confirmed');
         const txs = [];
 
-        // Iterate through Wallets
         for (const [walletAddress, walletData] of Object.entries(TRACKED_WALLETS)) {
           try {
             const walletPubkey = new solanaWeb3.PublicKey(walletAddress);
@@ -384,7 +408,6 @@
                 const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
                 if (!tx || !tx.meta) continue;
 
-                // Filter for Token Address
                 const preBalances = tx.meta.preTokenBalances || [];
                 const postBalances = tx.meta.postTokenBalances || [];
                 
@@ -399,10 +422,8 @@
 
                 if (diff === 0) continue;
 
-                // Detect type
                 let txType = detectTransactionType(tx, TOKEN_ADDRESS, walletAddress);
                 
-                // Fallback
                 if (!txType) {
                   if (diff > 0) txType = 'buy';
                   else if (diff < 0) txType = 'sell';
@@ -421,7 +442,6 @@
           } catch (e) { console.error('Error fetching wallet history:', e); }
         }
 
-        // Sort by time
         txs.sort((a, b) => {
           if (!a.time) return 1;
           if (!b.time) return -1;
@@ -495,7 +515,6 @@
               }
             },
             onHover: (event, activeElements) => {
-              const tooltip = document.getElementById('tooltip');
               if (activeElements.length > 0) {
                 const index = activeElements[0].index;
                 const holder = holdersData[index];
@@ -510,12 +529,22 @@
                   tooltipText += `<br><small>${holder.owner.substring(0, 8)}...${holder.owner.substring(holder.owner.length - 8)}</small>`;
                 }
                 
-                tooltip.innerHTML = tooltipText;
-                tooltip.classList.add('show');
-                tooltip.style.left = event.native.pageX + 10 + 'px';
-                tooltip.style.top = event.native.pageY - 60 + 'px';
+                const virtualElement = {
+                  getBoundingClientRect: () => ({
+                    width: 0,
+                    height: 0,
+                    top: event.native.pageY,
+                    right: event.native.pageX,
+                    bottom: event.native.pageY,
+                    left: event.native.pageX,
+                    x: event.native.pageX,
+                    y: event.native.pageY
+                  })
+                };
+                
+                showTooltip(virtualElement, tooltipText);
               } else {
-                tooltip.classList.remove('show');
+                hideTooltip();
               }
             }
           }
@@ -563,16 +592,21 @@
           const txSignature = tx.signature || 'N/A';
           const solscanUrl = tx.signature ? `https://solscan.io/tx/${tx.signature}` : '#';
           
-          // Handle Badge Class
           let badgeClass = 'neutral';
           if (tx.type === 'buy') badgeClass = 'buy';
           if (tx.type === 'sell') badgeClass = 'sell';
-          // lock and unlock use neutral (beige)
+          if (tx.type === 'lock') badgeClass = 'lock';
+          // Explicitly set 'unlock' class for styling (underline)
+          if (tx.type === 'unlock') badgeClass = 'unlock';
+          
+          const unlockTooltip = tx.type === 'unlock' 
+            ? 'data-tooltip="Autism might lock again &amp; even longer! Thanks for your patience. Stay tuned."' 
+            : '';
           
           return `
             <div class="tx-table-row">
               <div class="tx-col tx-col-action">
-                <span class="tx-badge ${badgeClass}">${tx.type.toUpperCase()}</span>
+                <span class="tx-badge ${badgeClass}" ${unlockTooltip}>${tx.type.toUpperCase()}</span>
                 <span class="tx-main-text"></span> 
               </div>
               <div class="tx-col tx-col-wallet">
@@ -595,6 +629,23 @@
         document.getElementById('txList').innerHTML = '<div class="error">Error loading transactions</div>';
       }
     }
+    
+    document.addEventListener('mouseover', (e) => {
+      if (e.target.classList.contains('tx-badge') && e.target.hasAttribute('data-tooltip')) {
+        const content = e.target.getAttribute('data-tooltip');
+        if (content) {
+          const txt = document.createElement("div");
+          txt.innerHTML = content;
+          showTooltip(e.target, txt.innerHTML);
+        }
+      }
+    });
+
+    document.addEventListener('mouseout', (e) => {
+      if (e.target.classList.contains('tx-badge') && e.target.hasAttribute('data-tooltip')) {
+        hideTooltip();
+      }
+    });
     
     window.addEventListener('load', () => {
       setTimeout(() => {
