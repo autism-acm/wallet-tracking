@@ -84,10 +84,7 @@
       cursor: pointer;
     }
     .tx-item {
-      display: flex;
-      gap: 4px;
-      flex-wrap: wrap;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
       font-family: 'Sora', sans-serif;
       letter-spacing: -0.06em;
       font-weight: 400;
@@ -96,19 +93,30 @@
       padding: 6px 16px;
       border-radius: 12px;
       font-size: 14px;
-      white-space: nowrap;
+      display: inline-block;
+      font-family: 'Sora', sans-serif;
+      letter-spacing: -0.06em;
     }
     .tx-action.buy {
       background: #00A78D;
       border: 1px solid #001F1A63;
+      color: #ffffff;
     }
     .tx-action.sell {
       background: #CF206D;
       border: 1px solid #3F002063;
+      color: #ffffff;
     }
-    .tx-action.lock {
-      background: #FFBD44;
-      border: 1px solid #3F2F0063;
+    .tx-action.transfer {
+      background: #232016;
+      border: 1px solid #36342E;
+      color: #cecece;
+    }
+    .tx-details {
+      font-size: 12px;
+      color: #8e8e8e;
+      margin-top: 4px;
+      font-family: 'Sora', sans-serif;
     }
     h3 {
       margin-top: 0;
@@ -118,16 +126,9 @@
     }
     
     @media (min-width: 768px) {
-      #container {
-        display: flex;
-        gap: 24px;
-        align-items: flex-start;
-      }
       #chartContainer {
-        margin: 0;
-      }
-      #transactionsContainer {
-        flex: 1;
+        margin-left: 0;
+        margin-right: auto;
       }
     }
   </style>
@@ -148,14 +149,20 @@
 
   <script>
     const TOKEN_ADDRESS = '8tnYkdbAi8hqKbsEw81HMrrzHXnhB59mhs9eWofEpump';
+    
+    // EDITABLE: Customize wallet labels
     const TRACKED_WALLETS = {
-      'ExnewHTbYSPvwU9Csrd98ZbP7C9x7zF6E6XVvJwoZuTf': 'Tracked Wallet 1',
-      'PLACEHOLDER_WALLET_1': 'Tracked Wallet 2',
-      'PLACEHOLDER_WALLET_2': 'Tracked Wallet 3'
+      'ExnewHTbYSPvwU9Csrd98ZbP7C9x7zF6E6XVvJwoZuTf': 'Dev Wallet',
+      'PLACEHOLDER_WALLET_1': 'Marketing Wallet',
+      'PLACEHOLDER_WALLET_2': 'Treasury Wallet'
     };
-    const LIQUIDITY_POOL_LABEL = '💧 Pump.fun Pool';
+    
+    // EDITABLE: Customize liquidity pool tooltip
+    const LIQUIDITY_POOL_TOOLTIP = '💧 Pump.fun Bonding Curve<br>Liquidity provider for this token';
+    
     const RAINBOW_COLORS = ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF', '#E0BBE4'];
     const HELIUS_API = '69962546-7dad-4593-b0a3-2d43dc14974a';
+    const PUMPFUN_PROGRAM = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'; // Pump.fun program ID
     
     let holdersData = [];
     let chartInstance = null;
@@ -170,6 +177,12 @@
         toast.style.opacity = '0';
         toast.style.transform = 'translateY(20px)';
       }, 2000);
+    }
+    
+    function isPumpfunPool(owner) {
+      // Check if address is likely pump.fun bonding curve or pool
+      // Pump.fun uses deterministic PDAs, often the largest holder is the bonding curve
+      return owner.startsWith('6') || owner.startsWith('7') || owner.startsWith('8');
     }
     
     async function fetchTokenHolders() {
@@ -199,8 +212,15 @@
       const holders = holdersDataRaw.filter(h => h && h.amount > 0);
       holders.sort((a, b) => b.amount - a.amount);
       
-      // Identify liquidity pool (usually the largest holder or has "pump" in derived address)
-      const liquidityPool = holders[0]; // Assume largest holder is LP
+      // Mark liquidity pool (largest holder that's not a tracked wallet)
+      let lpIndex = -1;
+      for (let i = 0; i < holders.length; i++) {
+        if (!TRACKED_WALLETS[holders[i].owner]) {
+          holders[i].isLP = true;
+          lpIndex = i;
+          break;
+        }
+      }
       
       const top24 = holders.slice(0, 24);
       const rest = holders.slice(24);
@@ -208,7 +228,7 @@
       
       const finalData = [...top24];
       if (restTotal > 0) {
-        finalData.push({ owner: 'The Rest', amount: restTotal });
+        finalData.push({ owner: 'The Rest', amount: restTotal, isRest: true });
       }
       
       return finalData;
@@ -219,16 +239,20 @@
         const connection = new solanaWeb3.Connection(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API}`, 'confirmed');
         const tokenMint = new solanaWeb3.PublicKey(TOKEN_ADDRESS);
         
-        const signatures = await connection.getSignaturesForAddress(tokenMint, { limit: 100 });
+        const signatures = await connection.getSignaturesForAddress(tokenMint, { limit: 50 });
         
         const txs = [];
-        for (const sig of signatures.slice(0, 30)) {
+        
+        for (const sig of signatures) {
           try {
             const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
             
             if (!tx || !tx.meta) continue;
             
+            const instructions = tx.transaction.message.instructions;
             const accountKeys = tx.transaction.message.accountKeys.map(k => k.pubkey.toBase58());
+            
+            // Find tracked wallet involvement
             const trackedWallet = Object.keys(TRACKED_WALLETS).find(w => accountKeys.includes(w));
             
             if (trackedWallet) {
@@ -244,11 +268,16 @@
                 const diff = postBal - preBal;
                 
                 if (diff !== 0) {
+                  let txType = 'transfer';
+                  if (diff > 0) txType = 'buy';
+                  if (diff < 0) txType = 'sell';
+                  
                   txs.push({
                     wallet: TRACKED_WALLETS[trackedWallet],
-                    type: diff > 0 ? 'buy' : 'sell',
+                    walletAddress: trackedWallet,
+                    type: txType,
                     amount: Math.abs(diff),
-                    time: new Date(sig.blockTime * 1000).toLocaleString()
+                    time: sig.blockTime ? new Date(sig.blockTime * 1000) : null
                   });
                 }
               }
@@ -257,6 +286,13 @@
             console.error('Error parsing tx:', e);
           }
         }
+        
+        // Sort by time, most recent first
+        txs.sort((a, b) => {
+          if (!a.time) return 1;
+          if (!b.time) return -1;
+          return b.time - a.time;
+        });
         
         return txs;
       } catch (err) {
@@ -275,22 +311,33 @@
         
         const total = holdersData.reduce((sum, h) => sum + h.amount, 0);
         
+        // Assign colors: LP gets #cecece, tracked wallets get first 3 pastels, others get remaining pastels, rest get #8e8e8e
+        let pastellIndex = 0;
+        const colors = holdersData.map((h) => {
+          if (h.isLP) return '#cecece';
+          if (h.isRest) return '#8e8e8e';
+          if (TRACKED_WALLETS[h.owner]) {
+            const color = RAINBOW_COLORS[pastellIndex % RAINBOW_COLORS.length];
+            pastellIndex++;
+            return color;
+          }
+          if (pastellIndex < RAINBOW_COLORS.length) {
+            const color = RAINBOW_COLORS[pastellIndex % RAINBOW_COLORS.length];
+            pastellIndex++;
+            return color;
+          }
+          return '#8e8e8e';
+        });
+        
         const labels = holdersData.map((h, i) => {
-          if (h.owner === 'The Rest') return 'The Rest';
-          if (i === 0) return LIQUIDITY_POOL_LABEL;
+          if (h.isRest) return 'The Rest';
+          if (h.isLP) return '💧 Pump.fun Pool';
           if (TRACKED_WALLETS[h.owner]) return TRACKED_WALLETS[h.owner];
-          return `Wallet ${i}`;
+          return `Wallet ${i + 1}`;
         });
         
         const data = holdersData.map(h => h.amount);
         const percentages = holdersData.map(h => ((h.amount / total) * 100).toFixed(2));
-        
-        // First 6 get rainbow, liquidity pool gets #cecece, rest get #8e8e8e
-        const colors = holdersData.map((h, i) => {
-          if (i === 0) return '#cecece'; // Liquidity pool
-          if (i <= 6) return RAINBOW_COLORS[(i - 1) % RAINBOW_COLORS.length];
-          return '#8e8e8e';
-        });
         
         document.querySelector('#chartContainer .loading').style.display = 'none';
         document.getElementById('pieChart').style.display = 'block';
@@ -316,13 +363,15 @@
             onClick: (event, activeElements) => {
               if (activeElements.length > 0) {
                 const index = activeElements[0].index;
-                const wallet = holdersData[index].owner;
+                const holder = holdersData[index];
                 
-                navigator.clipboard.writeText(wallet).then(() => {
-                  showToast('Address copied!');
-                }).catch(err => {
-                  showToast('Copy failed!');
-                });
+                if (!holder.isRest) {
+                  navigator.clipboard.writeText(holder.owner).then(() => {
+                    showToast('Address copied!');
+                  }).catch(err => {
+                    showToast('Copy failed!');
+                  });
+                }
               }
             },
             onHover: (event, activeElements) => {
@@ -334,12 +383,12 @@
                 
                 let tooltipText = `<strong>${labels[index]}</strong><br>${percent}%`;
                 
-                // Custom tooltip for tracked wallets and LP
-                if (index === 0) {
-                  tooltipText = `<strong>${LIQUIDITY_POOL_LABEL}</strong><br>${percent}%<br><small>Largest holder (likely LP)</small>`;
+                // EDITABLE: Customize tooltips here
+                if (holder.isLP) {
+                  tooltipText = LIQUIDITY_POOL_TOOLTIP + `<br>${percent}%`;
                 } else if (TRACKED_WALLETS[holder.owner]) {
                   tooltipText = `<strong>${TRACKED_WALLETS[holder.owner]}</strong><br>${percent}%<br><small>${holder.owner.substring(0, 8)}...${holder.owner.substring(holder.owner.length - 8)}</small>`;
-                } else {
+                } else if (!holder.isRest) {
                   tooltipText += `<br><small>${holder.owner.substring(0, 8)}...${holder.owner.substring(holder.owner.length - 8)}</small>`;
                 }
                 
@@ -365,16 +414,24 @@
         const txList = document.getElementById('txList');
         
         if (txs.length === 0) {
-          txList.innerHTML = '<div class="tx-item"><div class="tx-action buy">No recent transactions</div></div>';
+          txList.innerHTML = '<div class="tx-item">No recent tracked transactions</div>';
           return;
         }
         
-        txList.innerHTML = txs.map(tx => `
-          <div class="tx-item">
-            <div class="tx-action ${tx.type}">${tx.type.toUpperCase()}</div>
-            <div class="tx-action lock">LOCK</div>
-          </div>
-        `).join('');
+        // Render transactions stacked vertically, most recent on top
+        txList.innerHTML = txs.map(tx => {
+          const timeStr = tx.time ? tx.time.toLocaleString() : 'Unknown time';
+          const amountStr = (tx.amount / 1e6).toFixed(2); // Assuming 6 decimals
+          
+          return `
+            <div class="tx-item">
+              <div class="tx-action ${tx.type}">${tx.type.toUpperCase()}</div>
+              <div class="tx-details">
+                ${tx.wallet} • ${amountStr} tokens • ${timeStr}
+              </div>
+            </div>
+          `;
+        }).join('');
       } catch (err) {
         console.error('TX error:', err);
         document.getElementById('txList').innerHTML = '<div class="error">Error loading transactions</div>';
