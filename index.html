@@ -93,28 +93,27 @@
     
     /* Table styling */
     .tx-table-header {
-      background-color: #2a271e;
-      border-style: solid;
-      border-color: #36342e;
+      background-color: #232016;
+      border: 1px solid #36342E;
       border-top-width: 0px;
       border-right-width: 0px;
       border-bottom-width: 0px;
       border-left-width: 0px;
       align-items: center;
       padding: 0;
-      margin-bottom: 0px;
+      margin-bottom: 54px;
       display: flex;
     }
     
     .tx-table-row {
-      border-color: #2a271e;
+      background-color: #232016;
+      border: 1px solid #36342E;
       border-top-width: 0px;
       border-right-width: 0px;
       border-bottom-width: 1px;
       border-left-width: 0px;
-      border-style: solid;
       align-items: center;
-      margin-bottom: 0px;
+      margin-bottom: 8px;
       display: flex;
       overflow: visible;
     }
@@ -166,21 +165,6 @@
       color: #ffffff;
     }
     
-    .tx-badge {
-      background-color: #f4eac5;
-      border-radius: 4px;
-      border: 1px solid #f4eac5;
-      padding: 4px 8px;
-      margin: 0;
-      overflow: hidden;
-    }
-    
-    .tx-badge-text {
-      font-size: 11px;
-      color: #000000;
-      margin: 0;
-    }
-    
     .tx-wallet-text {
       font-size: 14px;
       color: #8e8e8e;
@@ -215,21 +199,27 @@
   <script>
     const TOKEN_ADDRESS = '8tnYkdbAi8hqKbsEw81HMrrzHXnhB59mhs9eWofEpump';
     
-    // EDITABLE: Customize wallet labels and tooltips
+    // ============================================================================
+    // EASY EDIT SECTION: Customize your tracked wallets here
+    // ============================================================================
     const TRACKED_WALLETS = {
+      // Dev Wallet - Main development wallet
       'ExnewHTbYSPvwU9Csrd98ZbP7C9x7zF6E6XVvJwoZuTf': {
-        label: 'Dev Wallet',
-        tooltip: '<strong>Dev Wallet</strong><br>Main development wallet'
+        label: 'Dev Wallet',  // Change this to customize the display name
+        tooltip: '<strong>Dev Wallet</strong><br>Main development wallet'  // Change tooltip text
       },
+      // Marketing Wallet - Handles marketing expenses
       'PLACEHOLDER_WALLET_1': {
-        label: 'Marketing Wallet',
-        tooltip: '<strong>Marketing Wallet</strong><br>Handles marketing expenses'
+        label: 'Marketing Wallet',  // Change this to customize the display name
+        tooltip: '<strong>Marketing Wallet</strong><br>Handles marketing expenses'  // Change tooltip text
       },
+      // Treasury Wallet - Treasury reserves
       'PLACEHOLDER_WALLET_2': {
-        label: 'Treasury Wallet',
-        tooltip: '<strong>Treasury Wallet</strong><br>Treasury reserves'
+        label: 'Treasury Wallet',  // Change this to customize the display name
+        tooltip: '<strong>Treasury Wallet</strong><br>Treasury reserves'  // Change tooltip text
       }
     };
+    // ============================================================================
     
     // EDITABLE: Customize liquidity pool tooltip
     const LIQUIDITY_POOL_TOOLTIP = '💧 Pump.fun Bonding Curve<br>Liquidity provider for this token';
@@ -335,7 +325,8 @@
                     walletAddress: trackedWalletKey,
                     type: txType,
                     amount: Math.abs(diff),
-                    time: sig.blockTime ? new Date(sig.blockTime * 1000) : null
+                    time: sig.blockTime ? new Date(sig.blockTime * 1000) : null,
+                    signature: sig.signature  // Include signature for Solscan link
                   });
                 }
               }
@@ -465,16 +456,19 @@
     }
     
     async function renderTransactions() {
-      // Add placeholder transactions for testing
+      // ============================================================================
+      // EASY EDIT SECTION: Add placeholder transactions for testing here
+      // ============================================================================
       const placeholderTxs = [
-        { wallet: 'Dev Wallet', type: 'buy', amount: 170390000, time: new Date('2026-01-26T00:00:18') },
-        { wallet: 'Marketing Wallet', type: 'sell', amount: 50000000, time: new Date('2026-01-25T15:30:22') },
-        { wallet: 'Treasury Wallet', type: 'lock', amount: 100000000, time: new Date('2026-01-24T10:15:00') },
-        { wallet: 'Dev Wallet', type: 'transfer', amount: 25000000, time: new Date('2026-01-23T08:45:33') },
-        { wallet: 'Marketing Wallet', type: 'buy', amount: 75000000, time: new Date('2026-01-22T18:20:15') },
-        { wallet: 'Treasury Wallet', type: 'burn', amount: 10000000, time: new Date('2026-01-21T12:00:00') },
-        { wallet: 'Dev Wallet', type: 'sell', amount: 30000000, time: new Date('2026-01-20T14:30:45') },
+        { wallet: 'Dev Wallet', type: 'buy', amount: 170390000, time: new Date('2026-01-26T00:00:18'), signature: '5wHu7...' },
+        { wallet: 'Marketing Wallet', type: 'sell', amount: 50000000, time: new Date('2026-01-25T15:30:22'), signature: '3kPm2...' },
+        { wallet: 'Treasury Wallet', type: 'lock', amount: 100000000, time: new Date('2026-01-24T10:15:00'), signature: '7xQn4...' },
+        { wallet: 'Dev Wallet', type: 'transfer', amount: 25000000, time: new Date('2026-01-23T08:45:33'), signature: '2mWv8...' },
+        { wallet: 'Marketing Wallet', type: 'buy', amount: 75000000, time: new Date('2026-01-22T18:20:15'), signature: '9zRt5...' },
+        { wallet: 'Treasury Wallet', type: 'burn', amount: 10000000, time: new Date('2026-01-21T12:00:00'), signature: '4jLs1...' },
+        { wallet: 'Dev Wallet', type: 'sell', amount: 30000000, time: new Date('2026-01-20T14:30:45'), signature: '6hNp3...' },
       ];
+      // ============================================================================
       
       try {
         const txs = await fetchTransactions();
@@ -500,7 +494,7 @@
               <span class="tx-header-text">Wallet & Amount</span>
             </div>
             <div class="tx-col tx-col-date">
-              <span class="tx-header-text">Date & Details</span>
+              <span class="tx-header-text">Date & Transaction</span>
             </div>
           </div>
         `;
@@ -509,21 +503,20 @@
         tableHTML += allTxs.map(tx => {
           const timeStr = tx.time ? tx.time.toLocaleDateString('en-GB') : 'Unknown';
           const amountStr = (tx.amount / 1e6).toFixed(2);
+          const txSignature = tx.signature || 'N/A';
+          const solscanUrl = tx.signature ? `https://solscan.io/tx/${tx.signature}` : '#';
           
           return `
             <div class="tx-table-row">
               <div class="tx-col tx-col-action">
                 <span class="tx-action-text ${tx.type}">${tx.type.toUpperCase()}</span>
-                <div class="tx-badge">
-                  <span class="tx-badge-text">MVP</span>
-                </div>
               </div>
               <div class="tx-col tx-col-wallet">
                 <span class="tx-wallet-text">${tx.wallet} • ${amountStr}M tokens</span>
               </div>
               <div class="tx-col tx-col-date">
                 <span class="tx-date-text">${timeStr}</span>
-                <span class="tx-url-text">View TX</span>
+                <a href="${solscanUrl}" target="_blank" class="tx-url-text" style="text-decoration: none; color: #8e8e8e; cursor: pointer;">View TX</a>
               </div>
             </div>
           `;
