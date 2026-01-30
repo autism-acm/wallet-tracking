@@ -98,7 +98,6 @@
       display: flex;
       align-items: center;
       justify-content: flex-start;
-      /* CRITICAL FIX: Force single line to enable scrolling without wrapping */
       white-space: nowrap;
     }
 
@@ -140,7 +139,7 @@
       font-size: 11px;
       font-weight: 600;
       margin-right: 8px;
-      white-space: nowrap; /* Ensure badge text doesn't wrap */
+      white-space: nowrap;
     }
 
     .tx-badge.buy {
@@ -258,7 +257,13 @@
     
     const HELIUS_API = '69962546-7dad-4593-b0a3-2d43dc14974a';
     const TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
-    const STREAMFLOW_PROGRAM_ID = 'strmRqUCoQUtwGU3tYvhUxC1WQ9V1bD1uM73SqueHF';
+    
+    // FIX: All 3 Streamflow Program IDs based on Documentation
+    const STREAMFLOW_PROGRAM_IDS = [
+      'strmRqUCoQUgGUan5YhzUZa6KqdzwX5L6FpUxfmKg5m', // Vesting V2 (Main)
+      'strmRqcWBCBbhsU1bsYmXv2SgDgYYsLPCGWTzK8W2hVQ', // Vesting V1 (Legacy)
+      'strmRqUCoQUtwGU3tYhzUxC1WQ9V1bD1uM73SqueHF'  // Payment
+    ];
     
     let holdersData = [];
     let chartInstance = null;
@@ -322,28 +327,41 @@
             }
           }
         }
-
-        // 2. LOCK LOGIC
-        if (ix.programId === STREAMFLOW_PROGRAM_ID) {
-          return 'lock';
-        }
-        
         return null;
       };
 
-      // Outer instructions
+      // 2. BURN CHECK (Outer & Inner)
       const instructions = tx.transaction.message.instructions || [];
       for (const ix of instructions) {
         const result = checkInstruction(ix);
         if (result) return result;
       }
-
-      // Inner instructions (CPI)
       const innerInstructions = tx.meta.innerInstructions || [];
       for (const ixGroup of innerInstructions) {
         for (const ix of ixGroup.instructions) {
           const result = checkInstruction(ix);
           if (result) return result;
+        }
+      }
+
+      // 3. STREAMFLOW LOGIC (Log Parsing)
+      if (tx.meta.logMessages) {
+        const isStreamflowProgram = tx.meta.logMessages.some(log => 
+          STREAMFLOW_PROGRAM_IDS.some(id => log.includes(id))
+        );
+        
+        if (isStreamflowProgram) {
+          // Check for UNLOCK (Withdraw)
+          const isWithdraw = tx.meta.logMessages.some(log => 
+            log.includes('Instruction: Withdraw')
+          );
+          if (isWithdraw) return 'unlock';
+
+          // Check for LOCK (Create)
+          const isCreate = tx.meta.logMessages.some(log => 
+            log.includes('Instruction: Create')
+          );
+          if (isCreate) return 'lock';
         }
       }
 
@@ -353,51 +371,57 @@
     async function fetchTransactions() {
       try {
         const connection = new solanaWeb3.Connection(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API}`, 'confirmed');
-        const tokenMint = new solanaWeb3.PublicKey(TOKEN_ADDRESS);
-        
-        const signatures = await connection.getSignaturesForAddress(tokenMint, { limit: 50 });
         const txs = [];
-        
-        for (const sig of signatures) {
+
+        // Iterate through Wallets
+        for (const [walletAddress, walletData] of Object.entries(TRACKED_WALLETS)) {
           try {
-            const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
-            if (!tx || !tx.meta) continue;
+            const walletPubkey = new solanaWeb3.PublicKey(walletAddress);
+            const signatures = await connection.getSignaturesForAddress(walletPubkey, { limit: 200 });
             
-            const accountKeys = tx.transaction.message.accountKeys.map(k => k.pubkey.toBase58());
-            const trackedWalletKey = Object.keys(TRACKED_WALLETS).find(w => accountKeys.includes(w));
-            
-            if (trackedWalletKey) {
-              const preBalances = tx.meta.preTokenBalances || [];
-              const postBalances = tx.meta.postTokenBalances || [];
-              
-              const preBalance = preBalances.find(b => b.owner === trackedWalletKey);
-              const postBalance = postBalances.find(b => b.owner === trackedWalletKey);
-              
-              const preBal = preBalance ? parseInt(preBalance.uiTokenAmount.amount) : 0;
-              const postBal = postBalance ? parseInt(postBalance.uiTokenAmount.amount) : 0;
-              const diff = postBal - preBal;
-              
-              if (diff !== 0) {
-                let txType = detectTransactionType(tx, TOKEN_ADDRESS, trackedWalletKey);
+            for (const sig of signatures) {
+              try {
+                const tx = await connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
+                if (!tx || !tx.meta) continue;
+
+                // Filter for Token Address
+                const preBalances = tx.meta.preTokenBalances || [];
+                const postBalances = tx.meta.postTokenBalances || [];
                 
+                const preBalance = preBalances.find(b => b.owner === walletAddress && b.mint === TOKEN_ADDRESS);
+                const postBalance = postBalances.find(b => b.owner === walletAddress && b.mint === TOKEN_ADDRESS);
+
+                if (!preBalance && !postBalance) continue;
+
+                const preBal = preBalance ? parseInt(preBalance.uiTokenAmount.amount) : 0;
+                const postBal = postBalance ? parseInt(postBalance.uiTokenAmount.amount) : 0;
+                const diff = postBal - preBal;
+
+                if (diff === 0) continue;
+
+                // Detect type
+                let txType = detectTransactionType(tx, TOKEN_ADDRESS, walletAddress);
+                
+                // Fallback
                 if (!txType) {
                   if (diff > 0) txType = 'buy';
                   else if (diff < 0) txType = 'sell';
                 }
 
                 txs.push({
-                  wallet: TRACKED_WALLETS[trackedWalletKey].label,
-                  walletAddress: trackedWalletKey,
+                  wallet: walletData.label,
+                  walletAddress: walletAddress,
                   type: txType,
                   amount: Math.abs(diff),
                   time: sig.blockTime ? new Date(sig.blockTime * 1000) : null,
                   signature: sig.signature
                 });
-              }
+              } catch (e) { console.error('Error parsing individual tx:', e); }
             }
-          } catch (e) { console.error('Error parsing tx:', e); }
+          } catch (e) { console.error('Error fetching wallet history:', e); }
         }
-        
+
+        // Sort by time
         txs.sort((a, b) => {
           if (!a.time) return 1;
           if (!b.time) return -1;
@@ -505,8 +529,6 @@
     async function renderTransactions() {
       try {
         const txs = await fetchTransactions();
-        
-        // Limit to the 8 most recent transactions
         const allTxs = txs.slice(0, 8);
         
         const txList = document.getElementById('txList');
@@ -537,13 +559,15 @@
         
         tableHTML += allTxs.map(tx => {
           const timeStr = tx.time ? tx.time.toLocaleDateString('en-GB') : 'Unknown';
-          const amountStr = (tx.amount / 1e6).toFixed(2);
+          const amountStr = (tx.amount / 1e12).toFixed(2);
           const txSignature = tx.signature || 'N/A';
           const solscanUrl = tx.signature ? `https://solscan.io/tx/${tx.signature}` : '#';
           
+          // Handle Badge Class
           let badgeClass = 'neutral';
           if (tx.type === 'buy') badgeClass = 'buy';
           if (tx.type === 'sell') badgeClass = 'sell';
+          // lock and unlock use neutral (beige)
           
           return `
             <div class="tx-table-row">
